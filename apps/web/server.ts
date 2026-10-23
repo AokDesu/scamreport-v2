@@ -1,6 +1,7 @@
 import { resolve, sep } from 'node:path';
 const root=resolve(import.meta.dir,'dist');
-Bun.serve({port:Number(process.env.PORT ?? 8080),hostname:'0.0.0.0',async fetch(request){
+// The API enforces its bounded stream; native proxy 413s would bypass its JSON error contract.
+Bun.serve({port:Number(process.env.PORT ?? 8080),hostname:'0.0.0.0',maxRequestBodySize:Number.MAX_SAFE_INTEGER,async fetch(request){
   const url=new URL(request.url);
   if(url.pathname==='/config.js') {
     const config={url:process.env.VITE_SUPABASE_URL,anonKey:process.env.VITE_SUPABASE_ANON_KEY};
@@ -9,7 +10,8 @@ Bun.serve({port:Number(process.env.PORT ?? 8080),hostname:'0.0.0.0',async fetch(
   if(url.pathname.startsWith('/api/')) {
     const target=new URL(url.pathname.slice(4)+url.search,process.env.API_INTERNAL_URL ?? 'http://localhost:3000');
     const headers=new Headers(request.headers);headers.delete('host');
-    try { return await fetch(target,{method:request.method,headers,body:request.body,redirect:'manual'}); }
+    // Bun 1.3 can reuse a closed connection after an upload rejection; do not pool body requests.
+    try { return await fetch(target,{method:request.method,headers,body:request.body,redirect:'manual',keepalive:request.body === null}); }
     catch {
       const id=request.headers.get('x-request-id') ?? crypto.randomUUID();
       return Response.json({error:{code:'INTERNAL_ERROR',message:'API is unavailable.',requestId:id}},{status:502,headers:{'X-Request-Id':id}});

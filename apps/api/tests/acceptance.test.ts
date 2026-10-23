@@ -213,6 +213,23 @@ describe('Security',()=>{
     await data(await request(`/reports/${report.id}/withdraw`,'citizen',{method:'POST'}));
     await error(await request(`/reports/${report.id}/evidence/${filename}`,'moderator-a'),404,'NOT_FOUND');
   });
+  test('oversized known-length and chunked uploads retain validation errors and request IDs',async()=>{
+    const report = await create();
+    // Match the proxy: isolate Bun 1.3's body connections after early rejections.
+    for (const chunked of [false,true]) {
+      const form = new FormData();
+      form.set('file',new File(['%PDF-1.4\n',new Uint8Array(7*1024*1024)],'oversized.pdf',{type:'application/pdf'}));
+      const requestId = 'oversized-'+(chunked ? 'chunked' : 'known-length');
+      if (!chunked) {
+        await error(await request(`/reports/${report.id}/evidence`,'citizen',{method:'POST',keepalive:false,headers:{'X-Request-Id':requestId},body:form}),422,'VALIDATION_FAILED');
+      } else {
+        const prepared = new Request(base+`/reports/${report.id}/evidence`,{method:'POST',headers:{Authorization:'Bearer '+tokens.get('citizen'),'X-Request-Id':requestId},body:form});
+        const stream = prepared.body!.pipeThrough(new TransformStream<Uint8Array,Uint8Array>());
+        await error(await fetch(prepared.url,{method:'POST',headers:prepared.headers,body:stream,keepalive:false}),422,'VALIDATION_FAILED');
+      }
+    }
+    expect((await data<Me>(await request('/me'))).id).toBe(citizenId);
+  });
 });
 describe('Regression',()=>{
   test('create → moderate → public feed → withdraw commits correlated immutable audit',async()=>{

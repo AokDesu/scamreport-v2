@@ -36,8 +36,11 @@ const roleActions = {
 };
 
 export function createApp(config: Config) {
-  return new Elysia({ normalize: false, serve: { maxRequestBodySize: 6 * 1024 * 1024 } })
-    .onRequest(({ request, set }) => {
+  // Enforce the real bound in the application so native 413s cannot bypass error/request-ID hooks.
+  const maxBodyBytes = 6 * 1024 * 1024;
+  return new Elysia({ normalize: false, serve: { maxRequestBodySize: Number.MAX_SAFE_INTEGER } })
+    .onRequest(context => {
+      const {request,set} = context;
       const incoming = request.headers.get('x-request-id');
       set.headers['x-request-id'] = incoming && /^[A-Za-z0-9._:-]{1,128}$/.test(incoming) ? incoming : crypto.randomUUID();
       set.headers['cache-control'] = 'no-store';
@@ -51,6 +54,25 @@ export function createApp(config: Config) {
         set.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
       }
       if (request.method === 'OPTIONS') { set.status = 204; return new Response(null,{status:204}); }
+      if (request.body) {
+        if (Number(request.headers.get('content-length')) > maxBodyBytes) {
+          // A rejected unread body must not poison the next keep-alive request.
+          set.headers.connection = 'close';
+          fail(422,'VALIDATION_FAILED','Request body exceeds 6 MiB.');
+        }
+        let bytes = 0;
+        // Preserve Bun's native body until the JSON rejection is flushed, then close the connection.
+        context.request = new Request(request,{body:request.body.pipeThrough(new TransformStream<Uint8Array,Uint8Array>({
+          transform(chunk,controller) {
+            bytes += chunk.byteLength;
+            if (bytes > maxBodyBytes) {
+              set.headers.connection = 'close';
+              fail(422,'VALIDATION_FAILED','Request body exceeds 6 MiB.');
+            }
+            controller.enqueue(chunk);
+          },
+        }),{preventCancel:true})});
+      }
     })
     .onError(({ code, error, set }) => {
       const failure = error instanceof Failure ? error :
