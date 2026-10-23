@@ -1,0 +1,9 @@
+{
+  "name": "@scamreport/shared",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "elysia": "1.4.30"
+  }
+}

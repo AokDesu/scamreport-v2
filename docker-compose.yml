@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      SUPABASE_URL: http://supabase_kong_scamreport-v2:8000
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?Run bun run local:up first}
+      WEB_ORIGIN: http://localhost:8080
+      PORT: 3000
+    networks: [default, supabase]
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "if (!(await fetch('http://127.0.0.1:3000/health')).ok) process.exit(1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      API_INTERNAL_URL: http://api:3000
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:?Run bun run local:up first}
+      VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:?Run bun run local:up first}
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "-e", "if (!(await fetch('http://127.0.0.1:8080/sign-in')).ok) process.exit(1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+networks:
+  supabase:
+    external: true
+    name: supabase_network_scamreport-v2
