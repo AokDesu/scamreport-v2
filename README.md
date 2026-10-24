@@ -2,7 +2,13 @@
 
 A fresh, local-only rebuild: citizen mobile web and organization desktop console in one React application, backed by a tenant-isolated Bun/Elysia API and Supabase PostgreSQL/Auth/private Storage. The original CSC234 team repository is read-only and is not used at runtime.
 
-This PR provides the backend and **plain routing/authentication shells**. Citizen reporting screens, organization screens, dashboards and the approved visual theme are intentionally a separate UI task. Thai and English shell copy is included. No Firebase, AI filing/chat, push notifications, exports, Chinese or live deployment.
+The web app has two surfaces on the approved "queue ticket" theme (K PLUS teal-green family, self-hosted OFL Noto fonts, light mode): a **citizen phone app** (390px) and an **organization console** (desktop, 1280px and wider). Thai is the default language with an English switch on every screen. No Firebase, AI filing/chat, push notifications, exports, Chinese or live deployment.
+
+| Surface | Routes | What it does |
+|---|---|---|
+| Gate screens | `/sign-in`, `/session-expired`, `/unauthorized` | Sign in; Session Expired keeps the report draft on the device; Unauthorized shows the role held and the role needed |
+| Citizen | `/citizen/feed`, `/citizen/report`, `/citizen/report/received/:id`, `/citizen/reports` | Verified-scam feed with search; two-step report (scam type, channel, amount, story, evidence, then destination and consent); numbered tickets with the received → reviewing → result track and withdraw |
+| Console | `/admin/queue`, `/admin/reports/:id`, `/admin/members`, `/admin/activity`, `/admin/dashboard` | Queue with "Call next"; report detail with verify/reject/flag, consent-gated contact and history; members and roles; activity log with request IDs and denied attempts; executive dashboard with aggregates only |
 
 ## Start in three commands
 
@@ -39,7 +45,7 @@ Every account uses the **local demonstration password** `Demo-only-234!`. These 
 | `admin-b@demo.example.test` | Organization admin | Demo City Safety Unit |
 | `executive-b@demo.example.test` | Executive | Demo City Safety Unit |
 
-Seed organizations: A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; B `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`. Sign-in routes to `/citizen`, `/admin` or `/executive`. Opening another role’s shell shows `/unauthorized`. `/session-expired` explains how to sign in again. Route guards are UX only; API and RLS enforce actual access.
+Seed organizations: A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; B `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`. The seed also holds sixteen older fictional reports with decisions so the queue, history, activity log and dashboard have content. Sign-in routes citizens to `/citizen/feed`, moderators and admins to `/admin/queue`, executives to `/admin/dashboard`. A citizen opening a console route, or staff opening a citizen route, lands on `/unauthorized`. In the console, rail items the role lacks are shown locked; opening one asks the API, which answers `403`, logs the denied attempt for the organization admin, and the page explains the role held and the role needed. Route guards are UX only; API and RLS enforce actual access.
 
 Supabase rotates refresh tokens normally. If a persisted session cannot be refreshed, the client shows Session Expired even when Auth discards the invalid session during initialization; deliberate Sign out returns to Sign in instead. Temporary Auth/API transport failures remain retryable connection errors, not false session-expiry or permission denials. Stored-session presence is only a UX hint and never grants access.
 
@@ -81,8 +87,13 @@ All endpoints except `/health` and `/openapi*` require `Authorization: Bearer <S
 | `GET /feed?search=…` | Verified projection; search scam type/channel only |
 | `GET /moderation/queue?organization_id=…` | Own organization’s non-withdrawn cases; moderator/admin only |
 | `POST /moderation/:id` | Moderator chooses verified/rejected/flagged from pending/flagged |
+| `GET /moderation/:id` | One report of the caller's organization with its decision history; foreign or withdrawn IDs are 404; executives get a logged 403 |
+| `GET /members?organization_id=…` | Staff display names for moderators/admins of that tenant; sign-in emails only for organization admins |
 | `GET /statistics?organization_id=…` | Executive’s own tenant aggregates only |
-| `GET /audit?organization_id=…` | Organization admin’s own tenant mutation audit |
+| `GET /statistics/breakdown?organization_id=…` | Executive’s own tenant counts by scam type, channel, consent and week; no rows or identities |
+| `GET /audit?organization_id=…` | Organization admin’s own tenant audit: mutations, staff contact views and denied attempts, with request IDs and ticket numbers |
+
+Every staff `403` is written to the organization's activity log before the response leaves (`record_denial`), and every staff view of a consented contact is audited (`record_contact_view`); see the [permission matrix](docs/permission-matrix.md).
 
 Lists support `limit` (1–100, default 20) and `offset` (0–100000, default 0), except small tenant/membership catalogs. Success is `{ "data": ... }`. Elysia built-in schemas validate parameters, queries, JSON and files; unknown JSON fields are rejected rather than silently stripped. OpenAPI documents schemas and status codes.
 
@@ -126,7 +137,7 @@ With local Supabase running:
 bun run test
 ```
 
-This **one command** runs `supabase test db` then `bun test apps/api/tests`, writes real output/exit codes/timestamps to [docs/test-report.md](docs/test-report.md), and exits nonzero if either suite fails. No mock backend. API tests launch a real ephemeral-port Elysia HTTP server against local Auth/Data API/Storage. They are grouped by ThaiWay’s six categories: **Auth/Session, Permission, Cross-Tenant Denial, API Error, Security, Regression**.
+This **one command** runs `supabase test db`, `bun test apps/api/tests`, then the web component tests (`vitest` + Testing Library in jsdom, `bun run test:web`), writes real output/exit codes/timestamps to [docs/test-report.md](docs/test-report.md), and exits nonzero if any suite fails. No mock backend for the database and API suites. API tests launch a real ephemeral-port Elysia HTTP server against local Auth/Data API/Storage. They are grouped by ThaiWay’s six categories: **Auth/Session, Permission, Cross-Tenant Denial, API Error, Security, Regression**. Component tests cover the report form (validation in Thai, exact API body, no contact details without consent, 403 handling, English labels) and status handling (step track, status words, 401/403/404/network handling in the API client).
 
 The expiry test signs a short-lived JWT with the local-only test signing secret obtained from `supabase status`, proves that Auth accepts it while live, waits for the separate Auth server’s clock, then proves `401 SESSION_EXPIRED` for the **same token**. No fake expiry branch or decoded-but-unverified token. Refresh-token rotation, existing-JWT permission revocation, direct Data API RLS denial, consent, private evidence, audit correlation and create→moderate→feed→withdraw are covered.
 
@@ -140,14 +151,14 @@ bun run build
 supabase db advisors --local --type security
 ```
 
-CI runs on every PR and main: frozen install, typecheck, local Supabase, database/API tests with report artifact, web build, both Docker image builds. Only a successful main push publishes `ghcr.io/aokdesu/scamreport-v2-api` and `ghcr.io/aokdesu/scamreport-v2-web` (`latest` and commit-SHA tags). No deployment. The web image accepts public Supabase config **at runtime** through `/config.js`, so published images contain no baked-in keys; both containers run as the unprivileged `bun` user.
+CI runs on every PR and main: frozen install, typecheck, local Supabase, database/API/web component tests with report artifact, web build, both Docker image builds. Only a successful main push publishes `ghcr.io/aokdesu/scamreport-v2-api` and `ghcr.io/aokdesu/scamreport-v2-web` (`latest` and commit-SHA tags). No deployment. The web image accepts public Supabase config **at runtime** through `/config.js`, so published images contain no baked-in keys; both containers run as the unprivileged `bun` user.
 
 ## New developer handover
 
 1. Run the three setup commands and read the permission matrix before changing roles, contacts, projections or storage policies.
 2. For native hot reload, keep Supabase running, stop only these app containers with `docker compose down`, then run `WEB_ORIGIN=http://localhost:5173 bun run dev`. Vite serves 5173 and proxies `/api`; root `.env` supplies local public config. Do not stop another project’s containers or Docker daemon.
 3. Add shared input/output contracts in `packages/shared/src/index.ts`; add role checks in `apps/api/src/app.ts`; keep the caller JWT. Generate migrations using `supabase migration new <name>` and extend behavioral pgTAP/API denial tests. Do not change user metadata into authorization or introduce a service-role path.
-4. The UI task can replace the plain shells in `apps/web/src/main.tsx`, reuse `api<T>()` (including 401/403 navigation), and add official shadcn components. `components.json` uses the official Radix/new-york registry, Tailwind v4 CSS variables, Lucide, and `@/` → `src`. Only Button/Input are added. The official CLI’s newer `cn`/aggregate `radix-ui` imports were replaced by the approved local `clsx`/`tailwind-merge` helper and `@radix-ui/react-slot`; keep future additions on approved packages.
-5. Use the role accounts above to record mobile/desktop sign-in, no-permission and expired-session demonstrations. Backend regression evidence is in the generated report; visual design and complete product screens are not represented as finished in this foundation.
+4. Web code: `src/i18n/{th,en}.ts` hold every visible string (same keys in both; Thai is the type source). `src/components/` holds the signature pieces (`Ticket`, `StepTrack`, `StatusBadge`, `IdentifierChip`, `LanguageToggle`); `src/components/ui/` holds official shadcn/ui components restyled to the theme in `src/index.css`. Screens live in `src/citizen/` and `src/admin/` (the console is lazy-loaded). `api<T>()` throws `ApiFailure` with status, code and request ID; screens show translated text, never server messages. `components.json` uses the official Radix/new-york registry; the CLI's aggregate `radix-ui`/`cn` imports are replaced by individual `@radix-ui/react-*` packages and the local `cn` helper, so keep future additions on approved packages.
+5. Use the role accounts above to record mobile/desktop sign-in, no-permission and expired-session demonstrations. To see Session Expired without waiting an hour, sign in as a citizen, start a report, then in the browser console set `scamreport-auth`'s `expires_at` to the past and its `refresh_token` to any invalid value and reload: Auth refuses the refresh and the app shows Session Expired with the draft kept.
 
 Environment variables are documented in `.env.example`. `SUPABASE_ANON_KEY`/`VITE_SUPABASE_ANON_KEY` are public project keys; **never substitute a service-role key**. The test runner reads `JWT_SECRET` transiently for expiry proof and never writes it into app `.env` or browser assets. No live credentials are needed for CI; GHCR uses the main-job `GITHUB_TOKEN` with packages:write. Never commit `.env`, signing secrets, personal data or real evidence.

@@ -32,7 +32,7 @@ function RoleMatrix() {
             <TableHeader>
               <TableRow className="bg-[#f5faf8] hover:bg-[#f5faf8]">
                 <TableHead><span className="sr-only">{t('members.capability')}</span></TableHead>
-                {memberRoles.map(role => <TableHead key={role} className="text-center whitespace-normal">{t(`role.${role}`)}</TableHead>)}
+                {memberRoles.map(role => <TableHead key={role} className="px-2 text-center text-[0.8125rem] leading-snug whitespace-normal [word-break:keep-all]">{t(`role.${role}`)}</TableHead>)}
               </TableRow>
             </TableHeader>
             <TableBody>

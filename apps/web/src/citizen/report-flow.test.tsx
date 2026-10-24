@@ -6,6 +6,7 @@ import type { Me } from '@scamreport/shared';
 import i18n from '@/i18n';
 import type * as ApiModule from '@/lib/api';
 import { ApiFailure } from '@/lib/api';
+import type { Draft } from '@/lib/draft';
 import { ReportFlow } from './report-flow';
 import { normalizeAmount, toReportInput, type ReportValues } from './report-schema';
 
@@ -21,6 +22,15 @@ vi.mock('@/lib/api', async () => {
   };
 });
 vi.mock('@/lib/supabase', () => ({ supabase: { auth: {} }, sessionWasStored: false }));
+// Device draft store (IndexedDB in the browser) as an in-memory map per account.
+const savedDrafts = new Map<string, Draft>();
+vi.mock('@/lib/draft', () => ({
+  drafts: {
+    load: async (userId: string) => savedDrafts.get(userId),
+    save: async (userId: string, draft: Draft) => { savedDrafts.set(userId, draft); },
+    remove: async (userId: string) => { savedDrafts.delete(userId); },
+  },
+}));
 
 const bank = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Demo River Bank / ธนาคารสาธิต' };
 const unit = { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Demo City Safety Unit / หน่วยงานสาธิต' };
@@ -28,9 +38,9 @@ const me: Me = { id: '10000000-0000-4000-8000-000000000001', email: 'citizen@dem
 const created = { id: '30000000-0000-4000-8000-000000000001', ticket_no: 4812, created_at: '2026-10-24T07:00:00Z', status: 'pending' };
 
 function Where() { return <p data-testid="where">{useLocation().pathname}</p>; }
-function renderFlow() {
+async function renderFlow() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/citizen/report']}>
         <Routes>
@@ -39,7 +49,10 @@ function renderFlow() {
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
+    { reactStrictMode: true }, // the app renders in StrictMode; effects must survive the double mount
   );
+  // The form appears once the device draft store has answered.
+  await screen.findByRole('radiogroup', { name: 'ถูกหลอกแบบไหน' });
 }
 async function fillDetails({ amount = '2,500', story = 'ได้ SMS ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงิน' } = {}) {
   fireEvent.click(screen.getByRole('radio', { name: 'ซื้อของออนไลน์ / พัสดุปลอม' }));
@@ -60,12 +73,13 @@ const posted = () => JSON.parse(String(calls.find(call => call.path === '/report
 
 beforeEach(() => {
   calls.length = 0;
+  savedDrafts.clear();
   reply = path => path === '/tenants' ? [unit, bank] : created;
 });
 
 describe('report form', () => {
   test('stays on step 1 and names every missing answer in Thai', async () => {
-    renderFlow();
+    await renderFlow();
     fireEvent.click(screen.getByRole('button', { name: 'ถัดไป: เลือกผู้ที่ติดต่อคุณได้' }));
     expect(await screen.findByText('เลือกแบบที่ถูกหลอก')).toBeTruthy();
     expect(screen.getByText('เลือกช่องทางที่มิจฉาชีพติดต่อ')).toBeTruthy();
@@ -76,7 +90,7 @@ describe('report form', () => {
   });
 
   test('rejects an amount the API would refuse, and "no money lost" removes that requirement', async () => {
-    renderFlow();
+    await renderFlow();
     fireEvent.change(screen.getByRole('textbox', { name: 'เสียเงินไปเท่าไร' }), { target: { value: '12.345' } });
     fireEvent.click(screen.getByRole('button', { name: 'ถัดไป: เลือกผู้ที่ติดต่อคุณได้' }));
     expect(await screen.findByText('กรอกจำนวนเงินเป็นตัวเลข ทศนิยมไม่เกิน 2 ตำแหน่ง')).toBeTruthy();
@@ -85,7 +99,7 @@ describe('report form', () => {
   });
 
   test('with consent, sends the exact API body including the contact snapshot', async () => {
-    renderFlow();
+    await renderFlow();
     await fillDetails();
     fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '02-555-0101' } });
     await submitConsent(/^ยินยอม ให้ติดต่อกลับได้/);
@@ -98,7 +112,7 @@ describe('report form', () => {
   });
 
   test('without consent, no contact detail leaves the device', async () => {
-    renderFlow();
+    await renderFlow();
     await fillDetails();
     fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '02-555-0101' } });
     await submitConsent(/^ไม่ยินยอม/);
@@ -110,7 +124,7 @@ describe('report form', () => {
   });
 
   test('consent step requires a destination and a consent choice before sending', async () => {
-    renderFlow();
+    await renderFlow();
     await fillDetails();
     await new Promise(resolve => setTimeout(resolve, 850));
     fireEvent.click(screen.getByRole('button', { name: 'ส่งเรื่อง' }));
@@ -125,19 +139,50 @@ describe('report form', () => {
       if (init?.method === 'POST') throw new ApiFailure(403, 'FORBIDDEN', 'req-403');
       return created;
     };
-    renderFlow();
+    await renderFlow();
     await fillDetails();
     await submitConsent(/^ไม่ยินยอม/);
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/unauthorized'));
   });
 
   test('the English switch relabels every choice without exposing API codes', async () => {
-    renderFlow();
+    await renderFlow();
     await i18n.changeLanguage('en');
     const types = await screen.findByRole('radiogroup', { name: 'Type of scam' });
     const labels = within(types).getAllByRole('radio').map(radio => radio.textContent);
     expect(labels).toEqual(['Online shopping / fake parcel', 'Investment', 'Posing as an official', 'Fake link asking for details', 'Something else']);
     for (const code of ['impersonation', 'phishing', 'investment', 'scam_type', 'consent_contact']) expect(document.body.textContent).not.toContain(code);
+  });
+});
+
+describe('report draft (kept through Session Expired)', () => {
+  const story = 'กลุ่ม LINE ชวนลงทุนทองคำ ปันผล 30% ต่อเดือน ถอนเงินไม่ได้';
+  test('typing autosaves every answer for this account only', async () => {
+    await renderFlow();
+    fireEvent.click(screen.getByRole('radio', { name: 'ชวนลงทุน' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'โซเชียล (LINE, Facebook)' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'เสียเงินไปเท่าไร' }), { target: { value: '45000' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'เล่าเหตุการณ์' }), { target: { value: story } });
+    await waitFor(() => expect(savedDrafts.get(me.id)).toMatchObject({ scam_type: 'investment', channel: 'social', amount: '45000', description: story }));
+    expect([...savedDrafts.keys()]).toEqual([me.id]);
+  });
+  test('signing in again restores every answer, including the typed story', async () => {
+    savedDrafts.set(me.id, { scam_type: 'investment', channel: 'social', amount: '45000', no_loss: false, description: story, contact_email: me.email });
+    await renderFlow();
+    expect(screen.getByRole('radio', { name: 'ชวนลงทุน' }).getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByRole('radio', { name: 'โซเชียล (LINE, Facebook)' }).getAttribute('aria-checked')).toBe('true');
+    expect((screen.getByRole('textbox', { name: 'เสียเงินไปเท่าไร' }) as HTMLInputElement).value).toBe('45000');
+    expect((screen.getByRole('textbox', { name: 'เล่าเหตุการณ์' }) as HTMLTextAreaElement).value).toBe(story);
+    // The restored draft must survive the next autosave untouched.
+    await new Promise(resolve => setTimeout(resolve, 500));
+    expect(savedDrafts.get(me.id)).toMatchObject({ description: story, amount: '45000' });
+  });
+  test('a successful submit deletes the draft so it cannot be sent twice', async () => {
+    await renderFlow();
+    await fillDetails();
+    await submitConsent(/^ไม่ยินยอม/);
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe(`/citizen/report/received/${created.id}`));
+    expect(savedDrafts.has(me.id)).toBe(false);
   });
 });
 

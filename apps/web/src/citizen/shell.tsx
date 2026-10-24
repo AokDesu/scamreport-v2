@@ -27,7 +27,7 @@ export function CitizenHeader({ title, subtitle, back, overlap = true, children 
           ? <Link to={back.to} onClick={back.onClick} className="-ml-2 inline-flex min-h-12 items-center gap-1 rounded-sm px-2 font-heading text-base font-medium text-sidebar-foreground no-underline">
               <ArrowLeft aria-hidden="true" className="size-5" />{t('app.back')}
             </Link>
-          : <Link to="/citizen/feed" className="rounded-sm text-sidebar-foreground no-underline"><Brand /></Link>}
+          : <Link to="/citizen/feed" className="inline-flex min-h-12 items-center rounded-sm text-sidebar-foreground no-underline"><Brand /></Link>}
         <LanguageToggle />
       </div>
       <h1 className="mt-3 text-2xl leading-[1.3] text-white">{title}</h1>

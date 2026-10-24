@@ -7,7 +7,6 @@ import type { Me } from '@scamreport/shared';
 import { ApiFailure } from '@/lib/api';
 import { homePath, primaryRole } from '@/lib/domain';
 import { Toaster } from '@/components/ui/sonner';
-import { TooltipProvider } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { IdentityProvider, useIdentity } from '@/auth/identity';
 import { IdentityError, LoadingScreen, SessionExpired, SignIn, Unauthorized } from '@/auth/gates';
@@ -85,10 +84,9 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <IdentityProvider>
-          <TooltipProvider>
-            <App />
-            <Toaster position="bottom-center" />
-          </TooltipProvider>
+          <App />
+          {/* On phones the primary action sits at the bottom, so toasts appear at the top. */}
+          <Toaster position={window.matchMedia('(min-width: 1024px)').matches ? 'bottom-right' : 'top-center'} />
         </IdentityProvider>
       </BrowserRouter>
     </QueryClientProvider>

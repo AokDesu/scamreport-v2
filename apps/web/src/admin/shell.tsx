@@ -90,11 +90,12 @@ function Rail() {
         <RailLink to="/admin/members" icon={Users} label={t('admin.members')} locked={!can('members')} lockedRole={needs('members')} />
         <RailLink to="/admin/dashboard" icon={ChartColumn} label={t('admin.dashboard')} locked={!can('dashboard')} lockedRole={needs('dashboard')} />
       </nav>
-      <div className="mt-auto flex items-center gap-3 border-t border-sidebar-border p-3">
+      <div className="mt-auto flex items-center gap-2.5 border-t border-sidebar-border px-2 py-3">
         <Avatar name={name} className="bg-sidebar-accent text-white" />
         <div className="min-w-0 flex-1">
-          <p className="font-heading text-[0.9375rem] leading-[1.35] font-semibold [overflow-wrap:anywhere] text-white">{name}</p>
-          <span className="mt-0.5 inline-flex rounded-full bg-sidebar-primary px-2 font-heading text-[0.8125rem] leading-[1.6] font-semibold text-sidebar-primary-foreground">{t(`role.${role}`)}</span>
+          {/* Executives cannot read the staff roster, so their rail shows the sign-in email, kept to one line. */}
+          <p title={name} className={cn('font-heading text-[0.9375rem] leading-[1.35] font-semibold text-white', self?.display_name ? '[overflow-wrap:anywhere]' : 'truncate')}>{name}</p>
+          <span className="mt-0.5 inline-flex rounded-full bg-sidebar-primary px-2 font-heading text-[0.8125rem] leading-[1.6] font-semibold whitespace-nowrap text-sidebar-primary-foreground">{t(`role.${role}`)}</span>
         </div>
         <Button variant="ghost" size="icon-sm" aria-label={t('admin.signOut')} className="text-sidebar-muted hover:bg-sidebar-accent hover:text-white"
           onClick={async () => { await signOut(); navigate('/sign-in', { replace: true }); }}>
@@ -122,7 +123,8 @@ export function ConsoleLayout({ me }: { me: Me }) {
   return (
     <ConsoleContext.Provider value={value}>
       <div className="admin-root grid min-h-screen min-w-[1280px] grid-cols-[272px_1fr]">
-        <Rail />
+        {/* The teal column spans the whole page; the rail inside stays pinned while content scrolls. */}
+        <div className="bg-sidebar"><Rail /></div>
         <div className="flex min-w-0 flex-col">
           {orgIds.length > 1 && (
             <div className="flex items-center gap-3 border-b bg-secondary px-8 py-2">

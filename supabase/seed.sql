@@ -45,7 +45,8 @@ insert into public.reports(id,reporter_id,organization_id,scam_type,channel,amou
 -- so the database suite removes them inside its rolled-back transaction.
 insert into public.reports(id,reporter_id,organization_id,scam_type,channel,amount,description,consent_contact,created_at)
 select ('21000000-0000-4000-8000-' || lpad(n::text,12,'0'))::uuid,
- ('10000000-0000-4000-8000-00000000000' || (1 + n % 3))::uuid,
+ -- The main demo citizen also owns a rejected (8) and a withdrawn (14) report, so My reports shows every status.
+ ('10000000-0000-4000-8000-00000000000' || (case when n in (8,14) then 1 else 1 + n % 3 end))::uuid,
  org::uuid,scam_type,channel,amount,description,consent,now() - make_interval(days => days, hours => n)
 from (values
  (1,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','shopping','sms',2500,'รายงานสาธิต: SMS แจ้งพัสดุตกค้าง ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงินจากบัตร',true,1),
@@ -75,7 +76,7 @@ update public.reports set status = 'rejected' where id in ('21000000-0000-4000-8
 update public.reports set status = 'flagged' where id = '21000000-0000-4000-8000-000000000006';
 select set_config('request.jwt.claims','{"sub":"10000000-0000-4000-8000-000000000007","role":"authenticated"}',false);
 update public.reports set status = 'verified' where id in ('21000000-0000-4000-8000-000000000015','21000000-0000-4000-8000-000000000016');
-select set_config('request.jwt.claims','{"sub":"10000000-0000-4000-8000-000000000003","role":"authenticated"}',false);
+select set_config('request.jwt.claims','{"sub":"10000000-0000-4000-8000-000000000001","role":"authenticated"}',false);
 update public.reports set status = 'withdrawn' where id = '21000000-0000-4000-8000-000000000014';
 select set_config('request.jwt.claims','',false);
 insert into public.report_contacts(report_id,email,phone)

@@ -183,7 +183,8 @@
   body { font-size: var(--text-md); line-height: var(--text-md--line-height); }
   h1, h2, h3, h4 { line-height: 1.35; font-weight: 600; letter-spacing: -0.005em; text-wrap: balance; }
   .admin-root { font-size: var(--text-base); line-height: var(--text-base--line-height); }
-  .num { font-family: "Noto Sans", var(--font-sans); font-variant-numeric: tabular-nums; }
+  html { scrollbar-color: #bcd0c8 transparent; }
+  a { text-underline-offset: 0.22em; text-decoration-thickness: 1.5px; }
 }
 
 /* Signature pieces drawn in CSS: masks, pseudo-element tracks and the print slot are clearer here

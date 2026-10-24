@@ -1,12 +1,13 @@
 import { useDeferredValue, useMemo, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Bell, Building2, CalendarDays, CircleCheck, Hourglass, Paperclip, Plus, Search, SearchX, Undo2, UserCheck, UserX } from 'lucide-react';
+import { Bell, Building2, CalendarDays, CircleCheck, Hourglass, LogOut, Paperclip, Plus, Search, SearchX, Undo2, UserCheck, UserX } from 'lucide-react';
 import type { FeedItem, Report, Tenant } from '@scamreport/shared';
 import i18next from 'i18next';
 import { api, failureMessageKey } from '@/lib/api';
+import { useIdentity } from '@/auth/identity';
 import { asChannel, asScamType, channelIcon, channels, scamTypes, type Channel, type ScamType } from '@/lib/domain';
 import { date, money, orgName, ticketLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -156,6 +157,8 @@ function ReportTicket({ report, onWithdraw }: { report: Report; onWithdraw: (rep
 export function MyReports() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { signOut } = useIdentity();
   const reports = useQuery({ queryKey: ['reports'], queryFn: () => api<Report[]>('/reports?limit=100') });
   const [withdrawing, setWithdrawing] = useState<Report | null>(null);
   const withdraw = useMutation({
@@ -182,6 +185,9 @@ export function MyReports() {
             <Button asChild size="lg"><Link to="/citizen/report"><Plus aria-hidden="true" />{t('reports.start')}</Link></Button>
           </div>
         ) : list.map(report => <ReportTicket key={report.id} report={report} onWithdraw={setWithdrawing} />)}
+        <Button variant="ghost" size="lg" className="mt-2 self-center" onClick={async () => { await signOut(); navigate('/sign-in', { replace: true }); }}>
+          <LogOut aria-hidden="true" />{t('nav.signOut')}
+        </Button>
       </CitizenBody>
       <BottomNav />
       <Sheet open={Boolean(withdrawing)} onOpenChange={value => { if (!value && !withdraw.isPending) setWithdrawing(null); }}>

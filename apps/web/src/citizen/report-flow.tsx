@@ -23,6 +23,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { OrgMark } from '@/components/brand';
 import { BottomActions, CitizenBody, CitizenHeader } from './shell';
+import { Skeleton } from '@/components/ui/skeleton';
 import i18n from '@/i18n';
 import { detailFields, emptyReport, reportSchema, toReportInput, type ReportValues } from './report-schema';
 
@@ -338,8 +339,9 @@ export function ReportFlow({ me }: { me: Me }) {
           if (step === 'details') void next();
           else if (Date.now() - consentSince.current > 800) void submit(event);
         }}>
-          {step === 'details'
-            ? <DetailsStep form={form} files={files} setFiles={setFiles} />
+          {/* The saved draft loads first, so it can never overwrite answers typed meanwhile. */}
+          {!loaded ? <Skeleton role="status" aria-label={t('app.loading')} className="h-96 rounded-xl bg-card" />
+            : step === 'details' ? <DetailsStep form={form} files={files} setFiles={setFiles} />
             : <ConsentStep form={form} />}
           {failure && (
             <p role="alert" className="rounded-md bg-danger-soft px-4 py-3 text-base text-danger-soft-foreground">
