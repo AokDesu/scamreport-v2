@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { CircleCheck, Eye, EyeOff, Home, LockKeyhole, LogIn, ShieldX, Timer } from 'lucide-react';
@@ -49,8 +49,15 @@ function useSignIn() {
 
 function useSignedInRedirect() {
   const { me, pending } = useIdentity();
-  const [target] = useState(() => returnPath.take());
-  if (pending || !me) return null;
+  const [target, setTarget] = useState<string | null>();
+  const consumed = useRef(false);
+  useEffect(() => {
+    // A transient signed-out gate must leave the destination for SessionExpired after login.
+    if (pending || !me || consumed.current) return;
+    consumed.current = true;
+    setTarget(returnPath.take());
+  }, [me, pending]);
+  if (pending || !me || target === undefined) return null;
   // Continue where the session ended, but only inside this account's own area.
   const area = primaryRole(me) === 'citizen' ? '/citizen' : '/admin';
   return target?.startsWith(area) ? target : homePath(me);
