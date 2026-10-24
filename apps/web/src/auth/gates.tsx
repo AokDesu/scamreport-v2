@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar } from '@/components/brand';
-import { GateLayout, MobileFrame } from '@/citizen/shell';
+import { GateLayout, PlainScreen } from '@/citizen/shell';
 import { useIdentity } from './identity';
 
 function PasswordField({ id, disabled }: { id: string; disabled: boolean }) {
@@ -158,20 +158,20 @@ export function Unauthorized() {
 export function LoadingScreen() {
   const { t } = useTranslation();
   return (
-    <MobileFrame>
+    <PlainScreen>
       <p role="status" className="m-auto font-heading text-lg text-muted-foreground">{t('app.loading')}</p>
-    </MobileFrame>
+    </PlainScreen>
   );
 }
 
 export function IdentityError({ onRetry }: { onRetry: () => void }) {
   const { t } = useTranslation();
   return (
-    <MobileFrame>
+    <PlainScreen>
       <div className="m-auto flex max-w-80 flex-col items-center gap-4 p-6 text-center">
         <p role="alert" className="text-md">{t('errors.session')}</p>
         <Button onClick={onRetry}>{t('app.retry')}</Button>
       </div>
-    </MobileFrame>
+    </PlainScreen>
   );
 }

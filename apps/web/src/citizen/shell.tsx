@@ -15,6 +15,16 @@ export function MobileFrame({ children }: { children: ReactNode }) {
   );
 }
 
+/** Bare phone-width screen (loading, errors, not found) that still carries the language switch. */
+export function PlainScreen({ children }: { children: ReactNode }) {
+  return (
+    <MobileFrame>
+      <div className="flex min-h-12 justify-end px-5 pt-3"><LanguageToggle tone="light" /></div>
+      {children}
+    </MobileFrame>
+  );
+}
+
 /** Teal header band. `back` replaces the brand with a back link; `overlap` lets the body card rise into the band. */
 export function CitizenHeader({ title, subtitle, back, overlap = true, children }: {
   title: string; subtitle?: ReactNode; back?: { to: string; onClick?: () => void }; overlap?: boolean; children?: ReactNode;

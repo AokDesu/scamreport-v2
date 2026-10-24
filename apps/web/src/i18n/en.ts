@@ -69,7 +69,7 @@ export const en: Resources = {
     consentYes: 'Yes, they may contact me', consentYesHint: 'Helps them follow the money faster.',
     consentNo: 'No, send it without my contact details', consentNoHint: 'The report is still checked, but no one can contact you.',
     consentLegend: 'Consent to be contacted', withdrawHint: 'You can withdraw the report any time from My reports.',
-    submit: 'Send report', submitting: 'Sending…', uploading: 'Attaching evidence {{done}} of {{total}}…',
+    submit: 'Send report', retryUpload: 'Try attaching the files again', sentNote: 'Your report was sent. Only the evidence files are still waiting to be attached.', submitting: 'Sending…', uploading: 'Attaching evidence {{done}} of {{total}}…',
     uploadFailed: 'Report sent, but {{count}} evidence file(s) could not be attached',
   },
   submitted: {
@@ -149,7 +149,7 @@ export const en: Resources = {
   activity: {
     retention: 'Cannot be edited or deleted', searchLabel: 'Search the log', searchPlaceholder: 'Name, report number or request ID',
     resultFilter: 'Result', all: 'All', success: 'Succeeded', denied: 'Denied',
-    summary: '{{shown}} entries on this page · {{denied}} denied',
+    summary: '{{shown}} entries on this page · {{denied}} denied in total',
     col: { time: 'Time', actor: 'Actor', action: 'Action', target: 'Target', result: 'Result', request: 'Request ID' },
     system: 'System', reporter: 'Reporter (public)', automatic: 'Automatic', formerMember: 'Former member', deniedBadge: 'Denied',
     organization: 'This organisation', otherOrganization: 'Another organisation', copy: 'Copy request ID {{id}}', copied: 'Request ID copied',
@@ -160,7 +160,7 @@ export const en: Resources = {
       'denied.moderation.queue': 'Open the review queue', 'denied.moderation.report': 'Open report details', 'denied.moderation.decide': 'Decide a report',
       'denied.memberships.read': 'Open the member list', 'denied.memberships.write': 'Change a member role', 'denied.memberships.self': 'Change own role',
       'denied.members.read': 'Open the staff list', 'denied.audit.read': 'Open the activity log', 'denied.statistics.read': 'Open the overview',
-      'denied.contacts.read': 'View reporter contact', 'denied.evidence.read': 'Open evidence', unknown: 'Other action',
+      'denied.contacts.read': 'View reporter contact', 'denied.contacts.consent': 'View contact without consent', 'denied.reports.citizen': 'Use a reporter-only action', 'denied.evidence.read': 'Open evidence', unknown: 'Other action',
     },
   },
   dashboard: {

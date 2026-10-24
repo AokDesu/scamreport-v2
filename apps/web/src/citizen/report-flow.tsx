@@ -251,6 +251,7 @@ export function ReportFlow({ me }: { me: Me }) {
   const form = useForm<ReportValues>({ resolver: zodResolver(reportSchema), defaultValues: { ...emptyReport, contact_email: me.email ?? '' }, mode: 'onTouched' });
   const [files, setFiles] = useState<File[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [sent, setSent] = useState<Draft['sent']>();
   const [progress, setProgress] = useState<string | null>(null);
   const [failure, setFailure] = useState<ApiFailure | Error | null>(null);
   const values = useWatch({ control: form.control });
@@ -264,6 +265,7 @@ export function ReportFlow({ me }: { me: Me }) {
       if (draft) {
         reset({ ...getValues(), ...Object.fromEntries(draftFields.filter(key => draft[key] !== undefined).map(key => [key, draft[key]])) });
         setFiles(draft.files ?? []);
+        setSent(draft.sent);
         toast(i18n.t('report.draftRestored'));
       }
       setLoaded(true);
@@ -273,14 +275,16 @@ export function ReportFlow({ me }: { me: Me }) {
 
   useEffect(() => {
     if (!loaded) return;
+    // While a submit runs it owns the draft, so a pending autosave can never undo its saves or its final removal.
+    if (progress) return;
     const started = Boolean(values.scam_type || values.channel || values.amount || values.description || files.length);
     const timer = setTimeout(() => {
       if (!started) return;
-      const draft: Draft = { ...Object.fromEntries(draftFields.map(key => [key, values[key]])), files, step };
+      const draft: Draft = { ...Object.fromEntries(draftFields.map(key => [key, values[key]])), files, step, sent };
       void drafts.save(me.id, draft);
     }, 400);
     return () => clearTimeout(timer);
-  }, [values, files, step, loaded, me.id]);
+  }, [values, files, step, sent, progress, loaded, me.id]);
 
   function focusFirstError() {
     requestAnimationFrame(() => {
@@ -303,19 +307,42 @@ export function ReportFlow({ me }: { me: Me }) {
   const submit = form.handleSubmit(async valid => {
     setFailure(null);
     setProgress(t('report.submitting'));
+    // The draft is the record of progress: it keeps the created report's ID and every file not yet
+    // uploaded, so an expiry or a failed upload is retried onto the same report, never a duplicate.
+    const keep = (progressNow: NonNullable<Draft['sent']>, left: File[]) => drafts.save(me.id, { ...Object.fromEntries(draftFields.map(key => [key, valid[key]])), files: left, step, sent: progressNow } as Draft);
     try {
-      const report = await api<Report>('/reports', { method: 'POST', body: JSON.stringify(toReportInput(valid)) });
-      // The report exists now; drop the draft so a later expiry cannot resubmit it.
-      await drafts.remove(me.id);
-      let attached = 0;
-      for (const [index, file] of files.entries()) {
-        setProgress(t('report.uploading', { done: index + 1, total: files.length }));
+      let report: Report | undefined;
+      let progressNow = sent;
+      if (!progressNow) {
+        report = await api<Report>('/reports', { method: 'POST', body: JSON.stringify(toReportInput(valid)) });
+        progressNow = { reportId: report.id, attached: 0 };
+        setSent(progressNow);
+        await keep(progressNow, files);
+      }
+      let left = files;
+      for (const file of files) {
+        setProgress(t('report.uploading', { done: progressNow.attached + 1, total: progressNow.attached + left.length }));
         const body = new FormData();
         body.set('file', file);
-        try { await api(`/reports/${report.id}/evidence`, { method: 'POST', body }); attached += 1; } catch { /* counted below */ }
+        try {
+          await api(`/reports/${progressNow.reportId}/evidence`, { method: 'POST', body });
+        } catch (error) {
+          if (error instanceof ApiFailure && error.status === 401) return;
+          continue;
+        }
+        left = left.filter(other => other !== file);
+        progressNow = { ...progressNow, attached: progressNow.attached + 1 };
+        setFiles(left);
+        setSent(progressNow);
+        await keep(progressNow, left);
       }
-      if (attached < files.length) toast.error(t('report.uploadFailed', { count: files.length - attached }));
-      navigate(`/citizen/report/received/${report.id}`, { replace: true, state: { report, attached } });
+      if (left.length) {
+        toast.error(t('report.uploadFailed', { count: left.length }));
+        setProgress(null);
+        return;
+      }
+      await drafts.remove(me.id);
+      navigate(`/citizen/report/received/${progressNow.reportId}`, { replace: true, state: { report, attached: progressNow.attached } });
     } catch (error) {
       if (error instanceof ApiFailure && error.status === 403) navigate('/unauthorized', { state: { need: 'citizen', requestId: error.requestId } });
       else setFailure(error as Error);
@@ -350,9 +377,10 @@ export function ReportFlow({ me }: { me: Me }) {
             </p>
           )}
           <BottomActions>
+            {sent && !progress && <p role="status" className="text-center text-base text-muted-foreground">{t('report.sentNote')}</p>}
             {progress && <p role="status" className="text-center text-base text-muted-foreground">{progress}</p>}
             <Button type="submit" size="lg" disabled={Boolean(progress)}>
-              {step === 'details' ? <>{t('report.next')}<ArrowRight aria-hidden="true" /></> : <><Send aria-hidden="true" />{t('report.submit')}</>}
+              {step === 'details' ? <>{t('report.next')}<ArrowRight aria-hidden="true" /></> : <><Send aria-hidden="true" />{t(sent ? 'report.retryUpload' : 'report.submit')}</>}
             </Button>
           </BottomActions>
         </form>

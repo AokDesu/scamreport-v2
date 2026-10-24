@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Ban, ChevronLeft, ChevronRight, CircleCheck, Copy, LockKeyhole, Search, Smartphone, Timer } from 'lucide-react';
-import type { AuditEntry } from '@scamreport/shared';
+import type { AuditCounts, AuditEntry } from '@scamreport/shared';
 import { api } from '@/lib/api';
 import { date, time } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -26,9 +26,12 @@ export function ActivityPage() {
   const [result, setResult] = useState<ResultFilter>('all');
   const [search, setSearch] = useState('');
   const audit = useQuery({
-    queryKey: ['audit', orgId, page],
-    queryFn: () => api<AuditEntry[]>(`/audit?organization_id=${orgId}&limit=${pageSize}&offset=${page * pageSize}`),
+    queryKey: ['audit', orgId, result, page],
+    queryFn: () => api<AuditEntry[]>(`/audit?organization_id=${orgId}&limit=${pageSize}&offset=${page * pageSize}${result === 'all' ? '' : `&result=${result}`}`),
     placeholderData: previous => previous,
+  });
+  const counts = useQuery({
+    queryKey: ['audit-counts', orgId], queryFn: () => api<AuditCounts>(`/audit/counts?organization_id=${orgId}`), enabled: audit.isSuccess,
   });
   const roster = useRoster();
   const member = (userId: string | null) => roster.data?.find(row => row.user_id === userId);
@@ -46,9 +49,7 @@ export function ActivityPage() {
     : '—';
   const needle = search.trim().toLowerCase();
   const rows = entries
-    .filter(entry => result === 'all' || (result === 'denied') === entry.action.startsWith('denied.'))
     .filter(entry => !needle || [actorName(entry), actionLabel(entry.action), entry.request_id, String(entry.ticket_no ?? ''), target(entry) ?? ''].some(text => text.toLowerCase().includes(needle)));
-  const deniedCount = entries.filter(entry => entry.action.startsWith('denied.')).length;
 
   return (
     <>
@@ -62,13 +63,13 @@ export function ActivityPage() {
             <Input aria-label={t('activity.searchLabel')} type="search" value={search} onChange={event => setSearch(event.target.value)}
               placeholder={t('activity.searchPlaceholder')} className="h-10 rounded-sm border pl-10 text-[0.9375rem]" />
           </div>
-          <Select value={result} onValueChange={value => setResult(value as ResultFilter)}>
+          <Select value={result} onValueChange={value => { setResult(value as ResultFilter); setPage(0); }}>
             <SelectTrigger aria-label={t('activity.resultFilter')} className="h-10 min-w-44 bg-card"><span className="text-muted-foreground">{t('activity.resultFilter')}</span><SelectValue /></SelectTrigger>
             <SelectContent>
               {(['all', 'success', 'denied'] as const).map(value => <SelectItem key={value} value={value}>{t(`activity.${value}`)}</SelectItem>)}
             </SelectContent>
           </Select>
-          <p aria-live="polite" className="ml-auto text-[0.9375rem] text-muted-foreground">{audit.isSuccess && t('activity.summary', { shown: entries.length, denied: deniedCount })}</p>
+          <p aria-live="polite" className="ml-auto text-[0.9375rem] text-muted-foreground">{audit.isSuccess && counts.isSuccess && t('activity.summary', { shown: entries.length, denied: counts.data.denied })}</p>
         </div>
         <div className="overflow-hidden rounded-xl bg-card shadow-sm">
           <Table>
@@ -85,7 +86,7 @@ export function ActivityPage() {
             <TableBody>
               {audit.isPending ? [0, 1, 2, 3].map(key => <TableRow key={key}><TableCell colSpan={6}><Skeleton className="h-9" /></TableCell></TableRow>)
                 : audit.isError ? <TableRow><TableCell colSpan={6} role="alert" className="py-8 text-center">{t('errors.network')} <Button variant="link" onClick={() => void audit.refetch()}>{t('app.retry')}</Button></TableCell></TableRow>
-                : rows.length === 0 ? <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">{t(entries.length ? 'activity.emptyFiltered' : 'activity.empty')}</TableCell></TableRow>
+                : rows.length === 0 ? <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">{t(entries.length || result !== 'all' ? 'activity.emptyFiltered' : 'activity.empty')}</TableCell></TableRow>
                 : rows.map(entry => {
                   const denied = entry.action.startsWith('denied.');
                   const actor = member(entry.actor_id);
@@ -109,7 +110,7 @@ export function ActivityPage() {
                         </span>
                       </TableCell>
                       <TableCell className="whitespace-normal">{actionLabel(entry.action)}</TableCell>
-                      <TableCell>{targetText ?? <TicketNumber ticketNo={entry.ticket_no!} createdAt={entry.created_at} size="sm" className="text-base" />}</TableCell>
+                      <TableCell>{targetText ?? <TicketNumber ticketNo={entry.ticket_no!} createdAt={entry.report_created_at!} size="sm" className="text-base" />}</TableCell>
                       <TableCell>
                         {denied
                           ? <span className="inline-flex items-center gap-1.5 rounded-full bg-status-rejected px-3 py-0.5 font-heading text-sm font-semibold text-status-rejected-foreground"><Ban aria-hidden="true" className="size-4" />{t('activity.deniedBadge')}</span>

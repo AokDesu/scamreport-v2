@@ -182,6 +182,66 @@ describe('report draft (kept through Session Expired)', () => {
     await fillDetails();
     await submitConsent(/^ไม่ยินยอม/);
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe(`/citizen/report/received/${created.id}`));
+    // A pending autosave must not bring the draft back after it was removed.
+    await new Promise(resolve => setTimeout(resolve, 600));
+    expect(savedDrafts.has(me.id)).toBe(false);
+  });
+  const attachSlip = () => fireEvent.change(document.querySelector<HTMLInputElement>('input[type=file]')!, {
+    target: { files: [new File(['%PDF-1.4'], 'slip.pdf', { type: 'application/pdf' })] },
+  });
+  const evidenceCalls = () => calls.filter(call => call.path.endsWith('/evidence'));
+  test('a failed upload keeps the draft, the file and the report ID, and the retry attaches to the same report', async () => {
+    let uploadsFail = true;
+    reply = path => {
+      if (path === '/tenants') return [unit, bank];
+      if (path.endsWith('/evidence')) { if (uploadsFail) throw new ApiFailure(500, 'INTERNAL_ERROR', 'req-500'); return { path: `${created.id}/slip.pdf` }; }
+      return created;
+    };
+    await renderFlow();
+    attachSlip();
+    await fillDetails();
+    await submitConsent(/^ไม่ยินยอม/);
+    const retry = await screen.findByRole('button', { name: 'ลองแนบหลักฐานอีกครั้ง' });
+    await waitFor(() => expect(savedDrafts.get(me.id)?.sent).toEqual({ reportId: created.id, attached: 0 }));
+    expect(savedDrafts.get(me.id)?.files?.map(file => file.name)).toEqual(['slip.pdf']);
+    uploadsFail = false;
+    fireEvent.click(retry);
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe(`/citizen/report/received/${created.id}`));
+    expect(calls.filter(call => call.path === '/reports' && call.init?.method === 'POST')).toHaveLength(1);
+    expect(evidenceCalls().map(call => call.path)).toEqual([`/reports/${created.id}/evidence`, `/reports/${created.id}/evidence`]);
+    expect(savedDrafts.has(me.id)).toBe(false);
+  });
+  test('a session that expires during the upload keeps the file and the report ID for after signing in again', async () => {
+    reply = path => {
+      if (path === '/tenants') return [unit, bank];
+      if (path.endsWith('/evidence')) throw new ApiFailure(401, 'SESSION_EXPIRED', 'req-401');
+      return created;
+    };
+    await renderFlow();
+    attachSlip();
+    await fillDetails();
+    await submitConsent(/^ไม่ยินยอม/);
+    await waitFor(() => expect(evidenceCalls()).toHaveLength(1));
+    await new Promise(resolve => setTimeout(resolve, 600));
+    expect(screen.queryByTestId('where')).toBeNull();
+    expect(savedDrafts.get(me.id)?.sent).toEqual({ reportId: created.id, attached: 0 });
+    expect(savedDrafts.get(me.id)?.files).toHaveLength(1);
+    expect(savedDrafts.get(me.id)?.description).toBe('ได้ SMS ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงิน');
+  });
+  test('after signing in again a restored draft with a created report only uploads the remaining files', async () => {
+    savedDrafts.set(me.id, {
+      scam_type: 'shopping', channel: 'sms', amount: '2500', no_loss: false, description: 'ได้ SMS ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงิน', organization_id: bank.id, consent: 'no',
+      contact_email: me.email, files: [new File(['%PDF-1.4'], 'left.pdf', { type: 'application/pdf' })], sent: { reportId: created.id, attached: 1 }, step: 'consent',
+    });
+    reply = path => path === '/tenants' ? [unit, bank] : { path: 'x' };
+    await renderFlow();
+    fireEvent.click(await screen.findByRole('button', { name: 'ถัดไป: เลือกผู้ที่ติดต่อคุณได้' }));
+    await screen.findByRole('heading', { level: 1, name: 'ให้หน่วยงานติดต่อคุณได้ไหม' });
+    await new Promise(resolve => setTimeout(resolve, 850));
+    fireEvent.click(screen.getByRole('button', { name: 'ลองแนบหลักฐานอีกครั้ง' }));
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe(`/citizen/report/received/${created.id}`));
+    expect(calls.some(call => call.path === '/reports' && call.init?.method === 'POST')).toBe(false);
+    expect(evidenceCalls()).toHaveLength(1);
     expect(savedDrafts.has(me.id)).toBe(false);
   });
 });

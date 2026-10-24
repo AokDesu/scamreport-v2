@@ -10,7 +10,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { Button } from '@/components/ui/button';
 import { IdentityProvider, useIdentity } from '@/auth/identity';
 import { IdentityError, LoadingScreen, SessionExpired, SignIn, Unauthorized } from '@/auth/gates';
-import { MobileFrame } from '@/citizen/shell';
+import { MobileFrame, PlainScreen } from '@/citizen/shell';
 import { ReportFlow } from '@/citizen/report-flow';
 import { Feed, MyReports, Submitted } from '@/citizen/screens';
 import './i18n';
@@ -49,13 +49,13 @@ function Home() {
 function NotFound() {
   const { t } = useTranslation();
   return (
-    <MobileFrame>
+    <PlainScreen>
       <main id="main" className="m-auto flex max-w-80 flex-col items-center gap-4 p-6 text-center">
         <h1 className="text-2xl">{t('notFound.title')}</h1>
         <p className="text-md text-muted-foreground">{t('notFound.body')}</p>
         <Button asChild size="lg"><Link to="/">{t('notFound.home')}</Link></Button>
       </main>
-    </MobileFrame>
+    </PlainScreen>
   );
 }
 

@@ -1,7 +1,8 @@
 /**
  * Report drafts survive a session expiry: fields and evidence files are kept in IndexedDB on this
- * device, keyed by the signed-in user's ID so another account never sees them. A deliberate sign-out
- * or a successful submit deletes the draft.
+ * device, keyed by the signed-in user's ID so another account never sees them. Once the report is
+ * created the draft keeps its ID and the files still to upload, so a retry attaches them to the same
+ * report. A deliberate sign-out or a fully completed submit deletes the draft.
  */
 export type Draft = {
   scam_type?: string;
@@ -14,6 +15,7 @@ export type Draft = {
   contact_email?: string;
   contact_phone?: string;
   files?: File[];
+  sent?: { reportId: string; attached: number };
   step?: 'details' | 'consent';
 };
 

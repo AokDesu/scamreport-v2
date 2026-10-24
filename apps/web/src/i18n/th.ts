@@ -68,7 +68,7 @@ export const th = {
     consentYes: 'ยินยอม ให้ติดต่อกลับได้', consentYesHint: 'ช่วยให้หน่วยงานติดตามเงินได้เร็วขึ้น',
     consentNo: 'ไม่ยินยอม ส่งโดยไม่เปิดเผยข้อมูลติดต่อ', consentNoHint: 'เรื่องยังได้รับการตรวจสอบ แต่จะไม่มีใครติดต่อกลับหาคุณ',
     consentLegend: 'การยินยอมให้ติดต่อ', withdrawHint: 'ถอนเรื่องได้ทุกเมื่อในหน้า “เรื่องของฉัน”',
-    submit: 'ส่งเรื่อง', submitting: 'กำลังส่งเรื่อง…', uploading: 'กำลังแนบหลักฐาน {{done}} จาก {{total}}…',
+    submit: 'ส่งเรื่อง', retryUpload: 'ลองแนบหลักฐานอีกครั้ง', sentNote: 'ส่งเรื่องของคุณแล้ว เหลือเพียงแนบไฟล์หลักฐาน', submitting: 'กำลังส่งเรื่อง…', uploading: 'กำลังแนบหลักฐาน {{done}} จาก {{total}}…',
     uploadFailed: 'ส่งเรื่องแล้ว แต่แนบหลักฐานไม่สำเร็จ {{count}} ไฟล์',
   },
   submitted: {
@@ -148,7 +148,7 @@ export const th = {
   activity: {
     retention: 'แก้ไขหรือลบไม่ได้', searchLabel: 'ค้นหาในบันทึก', searchPlaceholder: 'ค้นชื่อ เลขที่เรื่อง หรือรหัสคำขอ',
     resultFilter: 'ผลลัพธ์', all: 'ทั้งหมด', success: 'สำเร็จ', denied: 'ถูกปฏิเสธ',
-    summary: '{{shown}} รายการในหน้านี้ · ถูกปฏิเสธ {{denied}}',
+    summary: '{{shown}} รายการในหน้านี้ · ถูกปฏิเสธทั้งหมด {{denied}}',
     col: { time: 'เวลา', actor: 'ผู้กระทำ', action: 'การกระทำ', target: 'เป้าหมาย', result: 'ผลลัพธ์', request: 'รหัสคำขอ' },
     system: 'ระบบ', reporter: 'ผู้แจ้ง (ประชาชน)', automatic: 'อัตโนมัติ', formerMember: 'อดีตสมาชิก', deniedBadge: 'ถูกปฏิเสธ',
     organization: 'องค์กรนี้', otherOrganization: 'องค์กรอื่น', copy: 'คัดลอกรหัสคำขอ {{id}}', copied: 'คัดลอกรหัสคำขอแล้ว',
@@ -159,7 +159,7 @@ export const th = {
       'denied.moderation.queue': 'เปิดคิวตรวจสอบ', 'denied.moderation.report': 'เปิดรายละเอียดเรื่อง', 'denied.moderation.decide': 'ตัดสินผลเรื่อง',
       'denied.memberships.read': 'เปิดรายชื่อสมาชิก', 'denied.memberships.write': 'เปลี่ยนสิทธิ์สมาชิก', 'denied.memberships.self': 'เปลี่ยนสิทธิ์ของตัวเอง',
       'denied.members.read': 'เปิดรายชื่อเจ้าหน้าที่', 'denied.audit.read': 'เปิดบันทึกกิจกรรม', 'denied.statistics.read': 'เปิดภาพรวม',
-      'denied.contacts.read': 'ดูข้อมูลติดต่อผู้แจ้ง', 'denied.evidence.read': 'เปิดหลักฐาน', unknown: 'การกระทำอื่น',
+      'denied.contacts.read': 'ดูข้อมูลติดต่อผู้แจ้ง', 'denied.contacts.consent': 'ดูข้อมูลติดต่อโดยไม่มีความยินยอม', 'denied.reports.citizen': 'ใช้การกระทำเฉพาะผู้แจ้ง', 'denied.evidence.read': 'เปิดหลักฐาน', unknown: 'การกระทำอื่น',
     },
   },
   dashboard: {

@@ -34,20 +34,30 @@ $$;
 create function public.record_denial(target uuid, denied_action text)
 returns void language sql security invoker set search_path = '' as $$ select private.record_denial($1, $2); $$;
 
--- Each staff view of a consented contact snapshot leaves an audit row. Nothing is written unless
--- the caller could legitimately read that contact.
-create function private.record_contact_view(report uuid)
-returns void language plpgsql security definer set search_path = '' as $$
+-- Staff never read report_contacts directly: the table policy now serves only the reporter, and
+-- staff get a contact solely through read_report_contact, which writes the report_contacts.view
+-- audit row first. If that write fails the function raises and returns nothing.
+drop policy contacts_read on public.report_contacts;
+create policy contacts_read on public.report_contacts for select to authenticated using (exists (
+  select 1 from public.reports r where r.id = report_id and r.reporter_id = (select auth.uid())
+));
+create function private.read_report_contact(report uuid)
+returns table(report_id uuid, email text, phone text)
+language plpgsql security definer set search_path = '' as $$
+declare target public.reports;
 begin
-  insert into public.audit_log(organization_id, actor_id, action, resource_id, request_id)
-  select r.organization_id, auth.uid(), 'report_contacts.view', r.id, private.request_correlation()
-  from public.reports r
+  select r.* into target from public.reports r
   where r.id = report and r.consent_contact and r.status <> 'withdrawn'
     and private.has_role(r.organization_id, array['moderator','org_admin']::public.member_role[]);
+  if not found then return; end if;
+  insert into public.audit_log(organization_id, actor_id, action, resource_id, request_id)
+  values (target.organization_id, auth.uid(), 'report_contacts.view', target.id, private.request_correlation());
+  return query select c.report_id, c.email, c.phone from public.report_contacts c where c.report_id = target.id;
 end;
 $$;
-create function public.record_contact_view(report uuid)
-returns void language sql security invoker set search_path = '' as $$ select private.record_contact_view($1); $$;
+create function public.read_report_contact(report uuid)
+returns table(report_id uuid, email text, phone text)
+language sql security invoker set search_path = '' as $$ select * from private.read_report_contact($1); $$;
 
 -- Staff roster with display names for moderators and admins of the same organization.
 -- Sign-in emails are returned to organization admins only; executives and citizens are denied.
@@ -94,9 +104,9 @@ create function public.executive_breakdown(org uuid)
 returns table(dimension text, bucket text, report_count bigint)
 language sql stable security invoker set search_path = '' as $$ select * from private.executive_breakdown($1); $$;
 
-revoke all on function private.record_denial(uuid, text), private.record_contact_view(uuid),
+revoke all on function private.record_denial(uuid, text), private.read_report_contact(uuid),
   private.organization_roster(uuid), private.executive_breakdown(uuid) from public, anon;
-grant execute on function private.record_denial(uuid, text), private.record_contact_view(uuid),
+grant execute on function private.record_denial(uuid, text), private.read_report_contact(uuid),
   private.organization_roster(uuid), private.executive_breakdown(uuid),
-  public.record_denial(uuid, text), public.record_contact_view(uuid),
+  public.record_denial(uuid, text), public.read_report_contact(uuid),
   public.organization_roster(uuid), public.executive_breakdown(uuid) to authenticated;

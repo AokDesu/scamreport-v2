@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, Building2, ChevronLeft, ChevronRight, Search, Timer } from 'lucide-react';
-import type { Report } from '@scamreport/shared';
-import { asChannel, asScamType, channelIcon, channels, scamTypes, type ReportStatus } from '@/lib/domain';
+import type { QueueTab } from '@scamreport/shared';
+import { asChannel, asScamType, channelIcon, channels, scamTypes } from '@/lib/domain';
 import { elapsed, money, ticketLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -14,39 +14,33 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StatusBadge } from '@/components/status-badge';
 import { TicketNumber } from '@/components/ticket';
-import { Content, DeniedPanel, isDenied, ScopeChip, TopBar, useConsole, useQueue } from './shell';
+import { Content, DeniedPanel, isDenied, ScopeChip, TopBar, useConsole, useNextInLine, useQueueCounts, useQueueTab } from './shell';
 
-type Tab = 'pending' | 'flagged' | 'decided';
-const tabStatuses: Record<Tab, ReportStatus[]> = { pending: ['pending'], flagged: ['flagged'], decided: ['verified', 'rejected'] };
+type Tab = QueueTab;
+const tabs: Tab[] = ['pending', 'flagged', 'decided'];
 const tabCount: Record<Tab, string> = {
   pending: 'bg-status-pending text-status-pending-foreground', flagged: 'bg-status-flagged text-status-flagged-foreground', decided: 'bg-status-withdrawn text-status-withdrawn-foreground',
 };
 const pageSize = 8;
 
-/** Oldest pending report: the one "Call next" opens. */
-export function nextInLine(reports: Report[] | undefined) {
-  return reports?.filter(report => report.status === 'pending').sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
-}
-
 export function QueuePage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { orgLabel } = useConsole();
-  const queue = useQueue();
+  const { orgLabel, can } = useConsole();
   const [tab, setTab] = useState<Tab>('pending');
+  const queue = useQueueTab(tab);
+  // Only the tab list probes access, so a refused role is denied (and logged) once, not once per query.
+  const counts = useQueueCounts(can('queue'));
+  const nextReport = useNextInLine(can('queue'));
   const [search, setSearch] = useState('');
   const [type, setType] = useState('all');
   const [channel, setChannel] = useState('all');
   const [page, setPage] = useState(0);
-  const reports = useMemo(() => queue.data ?? [], [queue.data]);
-  const next = nextInLine(reports);
-  const counts = Object.fromEntries((Object.keys(tabStatuses) as Tab[]).map(key => [key, reports.filter(r => tabStatuses[key].includes(r.status)).length])) as Record<Tab, number>;
-  const rows = reports
-    .filter(r => tabStatuses[tab].includes(r.status))
+  const next = nextReport.data ?? undefined;
+  const rows = (queue.data ?? [])
     .filter(r => type === 'all' || asScamType(r.scam_type) === type)
     .filter(r => channel === 'all' || asChannel(r.channel) === channel)
-    .filter(r => !search.trim() || ticketLabel(r.ticket_no, r.created_at).includes(search.trim()) || String(r.ticket_no).includes(search.trim().replace(/^0+/, '')))
-    .sort((a, b) => tab === 'decided' ? b.created_at.localeCompare(a.created_at) : a.created_at.localeCompare(b.created_at));
+    .filter(r => !search.trim() || ticketLabel(r.ticket_no, r.created_at).includes(search.trim()) || String(r.ticket_no).includes(search.trim().replace(/^0+/, '')));
   const pages = Math.max(1, Math.ceil(rows.length / pageSize));
   const current = Math.min(page, pages - 1);
   const visible = rows.slice(current * pageSize, current * pageSize + pageSize);
@@ -79,10 +73,10 @@ export function QueuePage() {
         <div className="flex flex-wrap items-center gap-3">
           <Tabs value={tab} onValueChange={value => { setTab(value as Tab); setPage(0); }}>
             <TabsList aria-label={t('queue.tabsLabel')} className="h-auto gap-1 rounded-md bg-muted p-1">
-              {(Object.keys(tabStatuses) as Tab[]).map(key => (
+              {tabs.map(key => (
                 <TabsTrigger key={key} value={key} className="min-h-10 cursor-pointer rounded-[9px] px-4 font-heading text-[0.9375rem] data-[state=active]:bg-card data-[state=active]:font-semibold data-[state=active]:shadow-xs">
                   {t(`queue.tabs.${key}`)}
-                  <span className={cn('rounded-full px-1.75 font-[Noto_Sans] text-[0.8125rem] leading-[1.4rem] font-bold', tabCount[key])}>{counts[key]}</span>
+                  <span className={cn('rounded-full px-1.75 font-[Noto_Sans] text-[0.8125rem] leading-[1.4rem] font-bold', tabCount[key])}>{counts.data?.[key] ?? '–'}</span>
                 </TabsTrigger>
               ))}
             </TabsList>

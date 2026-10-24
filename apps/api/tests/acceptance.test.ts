@@ -165,6 +165,66 @@ describe('Permission',()=>{
     expect(view?.action).toBe('report_contacts.view');
     expect(view?.resource_id).toBe(report.id);expect(view?.ticket_no).toBe(report.ticket_no);
   });
+  test('staff cannot read contacts through the Data API; only the audited function returns them',async()=>{
+    const report = await create({consent_contact:true});
+    for (const account of ['moderator-a','admin-a'] as const) {
+      const direct = await clients.get(account)!.from('report_contacts').select('*').eq('report_id',report.id);
+      expect(direct.error).toBeNull();expect(direct.data).toEqual([]);
+    }
+    const before = (await data<Array<{action:string;resource_id:string}>>(await request(`/audit?organization_id=${A}&limit=100`,'admin-a'))).filter(row=>row.action==='report_contacts.view' && row.resource_id===report.id).length;
+    const viaFunction = await clients.get('moderator-a')!.rpc('read_report_contact',{report:report.id});
+    expect(viaFunction.error).toBeNull();expect(viaFunction.data?.[0]?.email).toBe('contact@demo.example.test');
+    const after = (await data<Array<{action:string;resource_id:string}>>(await request(`/audit?organization_id=${A}&limit=100`,'admin-a'))).filter(row=>row.action==='report_contacts.view' && row.resource_id===report.id).length;
+    expect(after).toBe(before+1);
+    const foreign = await clients.get('moderator-b')!.rpc('read_report_contact',{report:report.id});
+    expect(foreign.error).toBeNull();expect(foreign.data).toEqual([]);
+    const own = await data<{email:string}>(await request(`/reports/${report.id}/contacts`,'citizen'));
+    expect(own.email).toBe('contact@demo.example.test');
+  });
+  test('staff refusals on consent and on citizen-only routes are logged for the organization',async()=>{
+    const report = await create();
+    const consentId = 'denied-consent-'+crypto.randomUUID();
+    await error(await request(`/reports/${report.id}/contacts`,'moderator-a',{headers:{'X-Request-Id':consentId}}),403,'FORBIDDEN');
+    const citizenRouteId = 'denied-citizen-route-'+crypto.randomUUID();
+    await error(await request('/reports','moderator-a',{headers:{'X-Request-Id':citizenRouteId}}),403,'FORBIDDEN');
+    const audit = await data<Array<{action:string;request_id:string}>>(await request(`/audit?organization_id=${A}&limit=100`,'admin-a'));
+    expect(audit.find(row=>row.request_id===consentId)?.action).toBe('denied.contacts.consent');
+    expect(audit.find(row=>row.request_id===citizenRouteId)?.action).toBe('denied.reports.citizen');
+  });
+  test('queue tabs and counts come from the server, waiting tabs oldest first',async()=>{
+    await create();await create();
+    const pending = await data<Report[]>(await request(`/moderation/queue?organization_id=${A}&status=pending&limit=100`,'moderator-a'));
+    expect(pending.length).toBeGreaterThan(1);
+    expect(pending.every(row=>row.status==='pending')).toBe(true);
+    expect(pending.map(row=>row.created_at)).toEqual([...pending.map(row=>row.created_at)].sort());
+    const first = await data<Report[]>(await request(`/moderation/queue?organization_id=${A}&status=pending&limit=1`,'moderator-a'));
+    expect(first[0]?.id).toBe(pending[0]!.id);
+    const decided = await data<Report[]>(await request(`/moderation/queue?organization_id=${A}&status=decided&limit=100`,'admin-a'));
+    expect(decided.every(row=>row.status==='verified' || row.status==='rejected')).toBe(true);
+    expect(decided.map(row=>row.created_at)).toEqual([...decided.map(row=>row.created_at)].sort().reverse());
+    const counts = await data<{pending:number;flagged:number;decided:number}>(await request(`/moderation/queue/counts?organization_id=${A}`,'moderator-a'));
+    expect(counts.pending).toBe(pending.length);expect(counts.decided).toBe(decided.length);
+    const flagged = await data<Report[]>(await request(`/moderation/queue?organization_id=${A}&status=flagged&limit=100`,'moderator-a'));
+    expect(counts.flagged).toBe(flagged.length);
+    await error(await request(`/moderation/queue/counts?organization_id=${A}`,'executive-a'),403,'FORBIDDEN');
+    await error(await request(`/moderation/queue/counts?organization_id=${B}`,'moderator-a'),403,'FORBIDDEN');
+    await error(await request(`/moderation/queue?organization_id=${A}&status=withdrawn`,'moderator-a'),422,'VALIDATION_FAILED');
+  });
+  test('the audit filters denied entries on the server and labels tickets with the report’s own date',async()=>{
+    const report = await create({consent_contact:true});
+    await data(await request(`/reports/${report.id}/contacts`,'moderator-a'));
+    await error(await request(`/moderation/${report.id}`,'executive-a'),403,'FORBIDDEN');
+    const denied = await data<Array<{action:string}>>(await request(`/audit?organization_id=${A}&result=denied&limit=100`,'admin-a'));
+    expect(denied.length).toBeGreaterThan(0);expect(denied.every(row=>row.action.startsWith('denied.'))).toBe(true);
+    const succeeded = await data<Array<{action:string;resource_id:string;ticket_no:number|null;report_created_at:string|null}>>(await request(`/audit?organization_id=${A}&result=success&limit=100`,'admin-a'));
+    expect(succeeded.some(row=>row.action.startsWith('denied.'))).toBe(false);
+    const view = succeeded.find(row=>row.resource_id===report.id && row.action==='report_contacts.view');
+    expect(view?.ticket_no).toBe(report.ticket_no);
+    expect(new Date(view!.report_created_at!).getTime()).toBe(new Date(report.created_at).getTime());
+    const counts = await data<{total:number;denied:number}>(await request(`/audit/counts?organization_id=${A}`,'admin-a'));
+    expect(counts.denied).toBeGreaterThanOrEqual(denied.length);expect(counts.total).toBeGreaterThan(counts.denied);
+    await error(await request(`/audit/counts?organization_id=${A}`,'moderator-a'),403,'FORBIDDEN');
+  });
 });
 describe('Cross-Tenant Denial',()=>{
   test('queue, audit, membership and statistics cannot target a different organization',async()=>{

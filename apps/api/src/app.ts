@@ -2,8 +2,8 @@ import { Elysia, t } from 'elysia';
 import { openapi } from '@elysiajs/openapi';
 import { createClient } from '@supabase/supabase-js';
 import {
-  ApiError, AuditEntry, BreakdownRow, Contact, Data, ErrorResponses, FeedItem, IdParams, Me, Membership, MembershipInput,
-  MembershipTarget, ModerationInput, Pagination, Report, ReportDetail, ReportInput, RosterMember, StatisticsRow, Tenant,
+  ApiError, AuditCounts, AuditEntry, AuditFilter, BreakdownRow, Contact, Data, ErrorResponses, FeedItem, IdParams, Me, Membership, MembershipInput,
+  MembershipTarget, ModerationInput, Pagination, QueueCounts, QueueQuery, Report, ReportDetail, ReportInput, RosterMember, StatisticsRow, Tenant,
   TenantQuery, Uuid, type ErrorCode, type MemberRole, type Membership as MembershipType,
 } from '@scamreport/shared';
 
@@ -121,7 +121,7 @@ export function createApp(config: Config) {
           if (memberships[0]) await deny(memberships[0].organization_id,action,'Your role cannot open this resource.');
           fail(403,'FORBIDDEN','Your role cannot open this resource.');
         };
-        const requireCitizen = () => { if (memberships.length) fail(403,'FORBIDDEN','This action is for citizen accounts.'); };
+        const requireCitizen = async () => { if (memberships[0]) await deny(memberships[0].organization_id,'reports.citizen','This action is for citizen accounts.'); };
         return {db,user:data.user,memberships,deny,requireRole,requireAnyRole,requireCitizen};
       })
       .get('/me',({user,memberships}) => ({data:{id:user.id,email:user.email,role:memberships.length ? 'staff' : 'citizen',memberships}}),{response:one(Me),detail:{summary:'Current verified identity and database memberships'}})
@@ -149,15 +149,15 @@ export function createApp(config: Config) {
       },{query:TenantQuery,response:rows(RosterMember),detail:{summary:'Staff names for the organization; sign-in emails only for organization admins'}})
       .get('/roles',() => ({data:roleActions}),{response:one(t.Object(Object.fromEntries(Object.keys(roleActions).map(key=>[key,t.Array(t.String())])))),detail:{summary:'Role capability catalog; tenant grants come only from memberships'}})
       .post('/reports',async ({db,body,requireCitizen}) => {
-        requireCitizen();
+        await requireCitizen();
         return {data:result(await db.rpc('create_report',{...body,contact_email:body.contact_email ?? null,contact_phone:body.contact_phone ?? null}))};
       },{body:ReportInput,response:one(Report),detail:{summary:'Create own report with optional private contact snapshot (atomic)'}})
       .get('/reports',async ({db,user,query,requireCitizen}) => {
-        requireCitizen();
+        await requireCitizen();
         return {data:result(await db.from('reports').select(reportFields).eq('reporter_id',user.id).order('created_at',{ascending:false}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1))};
       },{query:t.Object(Pagination,{additionalProperties:false}),response:rows(Report),detail:{summary:'Citizen’s own reports, paginated'}})
       .post('/reports/:id/withdraw',async ({db,user,params,requireCitizen}) => {
-        requireCitizen();
+        await requireCitizen();
         const data = result(await db.from('reports').update({status:'withdrawn'}).eq('id',params.id).eq('reporter_id',user.id).select(reportFields));
         if (!data.length) fail(404,'NOT_FOUND','Report not found.');
         return {data:data[0]};
@@ -167,8 +167,23 @@ export function createApp(config: Config) {
       })
       .get('/moderation/queue',async ({db,query,requireRole}) => {
         await requireRole(query.organization_id,['moderator','org_admin'],'moderation.queue');
-        return {data:result(await db.from('reports').select(reportFields).eq('organization_id',query.organization_id).neq('status','withdrawn').order('created_at',{ascending:false}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1))};
-      },{query:t.Object({organization_id:Uuid,...Pagination},{additionalProperties:false}),response:rows(Report),detail:{summary:'Organization-only report rows; executive denied'}})
+        const base = db.from('reports').select(reportFields).eq('organization_id',query.organization_id).neq('status','withdrawn');
+        const tab = query.status;
+        const filtered = tab === 'decided' ? base.in('status',['verified','rejected']) : tab ? base.eq('status',tab) : base;
+        // Waiting tabs are served oldest first so the head of the list is always who is next in line.
+        const oldestFirst = tab === 'pending' || tab === 'flagged';
+        return {data:result(await filtered.order('created_at',{ascending:oldestFirst}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1))};
+      },{query:QueueQuery,response:rows(Report),detail:{summary:'Organization-only report rows, optionally one tab (pending and flagged oldest first); executive denied'}})
+      .get('/moderation/queue/counts',async ({db,query,requireRole}) => {
+        await requireRole(query.organization_id,['moderator','org_admin'],'moderation.queue');
+        const count = async (statuses: string[]) => {
+          const {count,error} = await db.from('reports').select('id',{count:'exact',head:true}).eq('organization_id',query.organization_id).in('status',statuses);
+          if (error || count === null) fail(500,'INTERNAL_ERROR','The request could not be completed.');
+          return count;
+        };
+        const [pending,flagged,decided] = await Promise.all([count(['pending']),count(['flagged']),count(['verified','rejected'])]);
+        return {data:{pending,flagged,decided}};
+      },{query:TenantQuery,response:one(QueueCounts),detail:{summary:'Per-tab report totals for the organization queue; executive denied'}})
       .get('/moderation/:id',async ({db,params,requireAnyRole,requireRole}) => {
         await requireAnyRole(['moderator','org_admin'],'moderation.report');
         const report = result(await db.from('reports').select(reportFields).eq('id',params.id).maybeSingle());
@@ -181,19 +196,21 @@ export function createApp(config: Config) {
         await requireRole(report.organization_id,['moderator'],'moderation.decide');
         return {data:result(await db.from('reports').update({status:body.status}).eq('id',params.id).select(reportFields).single())};
       },{params:IdParams,body:ModerationInput,response:one(Report),detail:{summary:'Moderator verifies, rejects or flags a pending/flagged report; atomic audit/history'}})
-      .get('/reports/:id/contacts',async ({db,user,params,requireRole}) => {
+      .get('/reports/:id/contacts',async ({db,user,params,deny,requireRole}) => {
         const report = result(await db.from('reports').select('organization_id,reporter_id,consent_contact').eq('id',params.id).maybeSingle());
         const staff = report.reporter_id !== user.id;
         if (staff) {
           await requireRole(report.organization_id,['moderator','org_admin'],'contacts.read');
-          if (!report.consent_contact) fail(403,'FORBIDDEN','The reporter did not consent to contact sharing.');
+          if (!report.consent_contact) await deny(report.organization_id,'contacts.consent','The reporter did not consent to contact sharing.');
+          // Staff cannot select the table: the definer function audits the view first and returns nothing if that write fails.
+          const [contact] = result(await db.rpc('read_report_contact',{report:params.id}));
+          if (!contact) fail(404,'NOT_FOUND','Resource not found.');
+          return {data:contact};
         }
-        // The view is logged before the contact leaves; no audit row means no contact.
-        if (staff && (await db.rpc('record_contact_view',{report:params.id})).error) fail(500,'INTERNAL_ERROR','The request could not be completed.');
         return {data:result(await db.from('report_contacts').select('report_id,email,phone').eq('report_id',params.id).maybeSingle())};
       },{params:IdParams,response:one(Contact),detail:{summary:'Private contact snapshot; assigned organization requires explicit consent; staff views are audited'}})
       .post('/reports/:id/evidence',async ({db,user,params,body,requireCitizen}) => {
-        requireCitizen();
+        await requireCitizen();
         const report = result(await db.from('reports').select('reporter_id,status').eq('id',params.id).maybeSingle());
         if (report.reporter_id !== user.id) fail(403,'FORBIDDEN','Only the reporter can upload evidence.');
         if (report.status !== 'pending') fail(422,'VALIDATION_FAILED','Evidence requires a pending report.');
@@ -234,11 +251,24 @@ export function createApp(config: Config) {
       },{query:TenantQuery,response:rows(BreakdownRow),detail:{summary:'Executive-only counts by scam type, channel, consent and week; no rows or identities'}})
       .get('/audit',async ({db,query,requireRole}) => {
         await requireRole(query.organization_id,['org_admin'],'audit.read');
-        const entries = result(await db.from('audit_log').select('id,organization_id,actor_id,action,resource_id,request_id,created_at').eq('organization_id',query.organization_id).order('created_at',{ascending:false}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1));
-        // Ticket labels for report rows still visible to this admin (withdrawn reports stay hidden).
-        const tickets = result(await db.from('reports').select('id,ticket_no').in('id',[...new Set(entries.map(entry=>entry.resource_id))]));
-        const ticketOf = new Map(tickets.map(row=>[row.id,row.ticket_no]));
-        return {data:entries.map(entry=>({...entry,ticket_no:ticketOf.get(entry.resource_id) ?? null}))};
-      },{query:t.Object({organization_id:Uuid,...Pagination},{additionalProperties:false}),response:rows(AuditEntry),detail:{summary:'Organization admin reads immutable tenant-scoped audit, including denied attempts'}})
+        const base = db.from('audit_log').select('id,organization_id,actor_id,action,resource_id,request_id,created_at').eq('organization_id',query.organization_id);
+        const filtered = query.result === 'denied' ? base.like('action','denied.%') : query.result === 'success' ? base.not('action','like','denied.%') : base;
+        const entries = result(await filtered.order('created_at',{ascending:false}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1));
+        // Ticket labels for report rows still visible to this admin (withdrawn reports stay hidden); the label's year is the report's own.
+        const tickets = result(await db.from('reports').select('id,ticket_no,created_at').in('id',[...new Set(entries.map(entry=>entry.resource_id))]));
+        const ticketOf = new Map(tickets.map(row=>[row.id,row]));
+        return {data:entries.map(entry=>({...entry,ticket_no:ticketOf.get(entry.resource_id)?.ticket_no ?? null,report_created_at:ticketOf.get(entry.resource_id)?.created_at ?? null}))};
+      },{query:AuditFilter,response:rows(AuditEntry),detail:{summary:'Organization admin reads immutable tenant-scoped audit, including denied attempts; optional result filter'}})
+      .get('/audit/counts',async ({db,query,requireRole}) => {
+        await requireRole(query.organization_id,['org_admin'],'audit.read');
+        const count = async (denied?: boolean) => {
+          const base = db.from('audit_log').select('id',{count:'exact',head:true}).eq('organization_id',query.organization_id);
+          const {count,error} = await (denied ? base.like('action','denied.%') : base);
+          if (error || count === null) fail(500,'INTERNAL_ERROR','The request could not be completed.');
+          return count;
+        };
+        const [total,denied] = await Promise.all([count(),count(true)]);
+        return {data:{total,denied}};
+      },{query:TenantQuery,response:one(AuditCounts),detail:{summary:'Total and denied entries in the organization audit'}})
     );
 }

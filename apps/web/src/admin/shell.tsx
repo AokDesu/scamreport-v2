@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ChartColumn, ChevronRight, Inbox, Lock, LogOut, ScrollText, ShieldX, Users, type LucideIcon } from 'lucide-react';
-import type { Me, MemberRole, Report, RosterMember, Tenant } from '@scamreport/shared';
+import type { Me, MemberRole, QueueCounts, QueueTab, Report, RosterMember, Tenant } from '@scamreport/shared';
 import { api, ApiFailure } from '@/lib/api';
 import { orgName, time } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -37,13 +37,33 @@ export function useRoster() {
   });
 }
 
-/** Moderation queue shared by the queue page, the rail count and "Call next" on the detail page. */
-export function useQueue(enabled = true) {
+const queueRetry = (count: number, error: Error) => !(error instanceof ApiFailure && error.status < 500) && count < 2;
+
+/** Per-tab report totals from the server: the tab badges and the rail's pending count. */
+export function useQueueCounts(enabled = true) {
   const { orgId } = useConsole();
   return useQuery({
-    queryKey: ['queue', orgId], queryFn: () => api<Report[]>(`/moderation/queue?organization_id=${orgId}&limit=100`),
-    enabled, retry: (count, error) => !(error instanceof ApiFailure && error.status < 500) && count < 2,
+    queryKey: ['queue', 'counts', orgId], queryFn: () => api<QueueCounts>(`/moderation/queue/counts?organization_id=${orgId}`), enabled, retry: queueRetry,
   });
+}
+
+/** One queue tab, served by the database in queue order (waiting tabs oldest first). */
+export function useQueueTab(tab: QueueTab) {
+  const { orgId } = useConsole();
+  return useQuery({
+    queryKey: ['queue', 'tab', orgId, tab], queryFn: () => api<Report[]>(`/moderation/queue?organization_id=${orgId}&status=${tab}&limit=100`), retry: queueRetry,
+  });
+}
+
+/** The oldest pending report: who "Call next" and "Save and call next" open. Always read fresh. */
+export const nextInLineQuery = (orgId: string) => ({
+  queryKey: ['queue', 'next', orgId],
+  queryFn: async () => (await api<Report[]>(`/moderation/queue?organization_id=${orgId}&status=pending&limit=1`))[0] ?? null,
+  staleTime: 0, retry: queueRetry,
+});
+export function useNextInLine(enabled = true) {
+  const { orgId } = useConsole();
+  return useQuery({ ...nextInLineQuery(orgId), enabled });
 }
 
 function RailLink({ to, icon: Icon, label, locked, lockedRole, count }: { to: string; icon: LucideIcon; label: string; locked: boolean; lockedRole: string; count?: number }) {
@@ -67,10 +87,10 @@ function Rail() {
   const { signOut } = useIdentity();
   const { me, orgId, orgLabel, role, can } = useConsole();
   const roster = useRoster();
-  const queue = useQueue(can('queue'));
+  const counts = useQueueCounts(can('queue'));
   const self = roster.data?.find(member => member.user_id === me.id);
   const name = self?.display_name || me.email || '';
-  const pending = queue.data?.filter(report => report.status === 'pending').length;
+  const pending = counts.data?.pending;
   const needs = (page: ConsolePage) => pageRoles[page].map(r => t(`role.${r}`)).join(' / ');
   return (
     <aside className="sticky top-0 flex h-screen flex-col gap-5 overflow-y-auto bg-sidebar px-3.5 py-4.5 text-sidebar-foreground">

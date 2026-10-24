@@ -83,17 +83,19 @@ All endpoints except `/health` and `/openapi*` require `Authorization: Bearer <S
 | `POST /reports/:id/evidence` | Multipart `file`; own pending report; private immutable PNG/JPEG/PDF ≤5 MiB |
 | `GET /reports/:id/evidence` | List authorized report’s evidence paths |
 | `GET /reports/:id/evidence/:filename` | Authorized attachment download; no public/signed URL |
-| `GET /reports/:id/contacts` | Owner, or assigned moderator/admin with consent |
+| `GET /reports/:id/contacts` | Owner, or assigned moderator/admin with consent (staff read it only through the audited `read_report_contact` function) |
 | `GET /feed?search=…` | Verified projection; search scam type/channel only |
-| `GET /moderation/queue?organization_id=…` | Own organization’s non-withdrawn cases; moderator/admin only |
+| `GET /moderation/queue?organization_id=…&status=pending\|flagged\|decided` | Own organization’s non-withdrawn cases, optionally one tab (waiting tabs oldest first); moderator/admin only |
+| `GET /moderation/queue/counts?organization_id=…` | Per-tab totals (`pending`, `flagged`, `decided`) behind the tab badges and “Call next” |
 | `POST /moderation/:id` | Moderator chooses verified/rejected/flagged from pending/flagged |
 | `GET /moderation/:id` | One report of the caller's organization with its decision history; foreign or withdrawn IDs are 404; executives get a logged 403 |
 | `GET /members?organization_id=…` | Staff display names for moderators/admins of that tenant; sign-in emails only for organization admins |
 | `GET /statistics?organization_id=…` | Executive’s own tenant aggregates only |
 | `GET /statistics/breakdown?organization_id=…` | Executive’s own tenant counts by scam type, channel, consent and week; no rows or identities |
-| `GET /audit?organization_id=…` | Organization admin’s own tenant audit: mutations, staff contact views and denied attempts, with request IDs and ticket numbers |
+| `GET /audit?organization_id=…&result=success\|denied` | Organization admin’s own tenant audit: mutations, staff contact views and denied attempts, with request IDs and ticket numbers |
+| `GET /audit/counts?organization_id=…` | Total and denied entry counts of that audit |
 
-Every staff `403` is written to the organization's activity log before the response leaves (`record_denial`), and every staff view of a consented contact is audited (`record_contact_view`); see the [permission matrix](docs/permission-matrix.md).
+Every `403` the API gives a staff member from a role, consent or citizen-only check is written to the organization's activity log before the response leaves (`record_denial`), and every staff view of a consented contact is audited by the database function that returns it (`read_report_contact`; staff cannot select `report_contacts` directly); see the [permission matrix](docs/permission-matrix.md).
 
 Lists support `limit` (1–100, default 20) and `offset` (0–100000, default 0), except small tenant/membership catalogs. Success is `{ "data": ... }`. Elysia built-in schemas validate parameters, queries, JSON and files; unknown JSON fields are rejected rather than silently stripped. OpenAPI documents schemas and status codes.
 

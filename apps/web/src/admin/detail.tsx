@@ -14,8 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { StatusBadge } from '@/components/status-badge';
 import { IdentifierChip, Ticket } from '@/components/ticket';
-import { Content, DeniedPanel, isDenied, isNotFound, TopBar, useConsole, useQueue, useRoster } from './shell';
-import { nextInLine } from './queue';
+import { Content, DeniedPanel, isDenied, isNotFound, nextInLineQuery, TopBar, useConsole, useRoster } from './shell';
 
 type Decision = Extract<ReportStatus, 'verified' | 'rejected' | 'flagged'>;
 const decisions: Array<{ value: Decision; label: string; icon: LucideIcon; tone: string }> = [
@@ -85,17 +84,20 @@ function ContactPanel({ reportId, consent }: { reportId: string; consent: boolea
   );
 }
 
+/** Keyed by report ID so a fetched contact and an unsaved decision never carry over to another report. */
 export function DetailPage() {
-  const { t, i18n } = useTranslation();
   const { id = '' } = useParams();
+  return <ReportDetailView key={id} id={id} />;
+}
+
+function ReportDetailView({ id }: { id: string }) {
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { me, role, orgLabel } = useConsole();
   const detail = useQuery({ queryKey: ['report', id], queryFn: () => api<ReportDetail>(`/moderation/${id}`) });
   const evidence = useQuery({ queryKey: ['evidence-list', id], queryFn: () => api<Array<{ path: string }>>(`/reports/${id}/evidence`), enabled: detail.isSuccess });
   const roster = useRoster();
-  // Keeps the queue loaded so "Save and call next" can open the following pending report.
-  useQueue(role === 'moderator');
   const [decision, setDecision] = useState<Decision | ''>('');
   const decide = useMutation({
     mutationFn: (status: Decision) => api(`/moderation/${id}`, { method: 'POST', body: JSON.stringify({ status }) }),
@@ -104,7 +106,7 @@ export function DetailPage() {
       toast.success(t('detail.saved', { ticket: ticketLabel(report.ticket_no, report.created_at), status: t(`status.${status}`) }));
       await Promise.all([queryClient.invalidateQueries({ queryKey: ['report', id] }), queryClient.invalidateQueries({ queryKey: ['queue'] })]);
       setDecision('');
-      const following = nextInLine(queryClient.getQueryData(['queue', detail.data!.report.organization_id]));
+      const following = await queryClient.fetchQuery(nextInLineQuery(report.organization_id)).catch(() => null);
       if (following && following.id !== id) navigate(`/admin/reports/${following.id}`);
     },
     onError: error => toast.error(t(failureMessageKey(error))),
