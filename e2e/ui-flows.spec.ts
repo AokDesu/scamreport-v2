@@ -42,6 +42,14 @@ test.describe('Auth/Session', () => {
     // The page remains in use. Only the token lifetime changes; no fake response, clock or gate navigation.
     await page.evaluate(session=>localStorage.setItem('scamreport-auth',JSON.stringify(session)),{...citizen.session,access_token:token});
     expect((await citizen.request('/me')).status()).toBe(200);
+    let expiredBody = '';
+    // Buffer the real proxy response before forwarding it unchanged: the hard redirect can
+    // discard Chromium's response resource before the test reads it. No mock or request retry.
+    await page.route('**/api/reports',async route=>{
+      const response = await route.fetch({maxRetries:0});
+      expiredBody = await response.text();
+      await route.fulfill({response});
+    },{times:1});
     await sleep(Math.max(0,expires*1000-Date.now()+1100));
     // Submit before the 400 ms autosave can run: the pre-submit checkpoint must keep this last edit too.
     await page.getByRole('textbox',{name:'Phone',exact:true}).fill('0X-EXPIRY-234');
@@ -49,11 +57,11 @@ test.describe('Auth/Session', () => {
     await page.getByRole('button',{name:'Send report',exact:true}).click();
     const expired = await expiredResponse;
     expect(expired.status()).toBe(401);
-    const failure = await expired.json();
+    await expect(page).toHaveURL(/\/session-expired$/);
+    const failure = JSON.parse(expiredBody);
     expect(failure.error.code).toBe('SESSION_EXPIRED');
     expect(failure.error.requestId).toBeTruthy();
     expect(failure.error.requestId).toBe(expired.headers()['x-request-id']);
-    await expect(page).toHaveURL(/\/session-expired$/);
     await expect(page.getByRole('heading',{name:'You were signed out to keep your account safe',exact:true})).toBeVisible();
     await expect(page.getByRole('status')).toContainText('Your unfinished report was saved.');
     await expect(page.getByRole('textbox',{name:'Signed in as',exact:true})).toHaveValue('citizen@demo.example.test');

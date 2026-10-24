@@ -1,7 +1,8 @@
 import { appendFile, cp, mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { localEnvironment } from './local-env';
+import { sanitizeReport } from './report';
 
 const e2eOnly = process.argv.includes('--e2e');
 const scratch = await mkdtemp(join(tmpdir(),'scamreport-e2e-'));
@@ -49,6 +50,7 @@ try {
     if (new URL(local.SUPABASE_URL!).port !== String(port+1)) throw new Error('Supabase status returned a different stack; refusing to run acceptance tests.');
     Object.assign(env,local);
     if (!e2eOnly) {
+      await run('Report / export privacy',['bun','test','scripts/report.test.ts']);
       await run('Database / pgTAP',['supabase','test','db','--local']);
       await run('Web / component tests (vitest + Testing Library)',['bun','run','--cwd','apps/web','test']);
       await run('API / six acceptance categories',['bun','test','apps/api/tests','--reporter=junit','--reporter-outfile='+junitPath]);
@@ -71,6 +73,10 @@ const report = '# Local acceptance test report\n\nGenerated: '+new Date().toISOS
 const junit = Bun.file(junitPath);
 const structuredCases = await junit.exists() ? '\n## Structured API cases (Bun JUnit output)\n\n```xml\n'+await junit.text()+'\n```\n' : '\nAPI suite not run or structured API output unavailable.\n';
 const browser = Bun.file(env.E2E_REPORT_PATH!);
-await Bun.write('docs/test-report.md',report+(await browser.exists() ? '\n'+await browser.text() : '\nEnd-to-end results unavailable: browser suite did not finish setup.\n')+structuredCases);
+const content = report+(await browser.exists() ? '\n'+await browser.text() : '\nEnd-to-end results unavailable: browser suite did not finish setup.\n')+structuredCases;
+await Bun.write('docs/test-report.md',sanitizeReport(content,[
+  [process.cwd(),'[repo]'],[scratch,'[stack]'],[artifacts,'[artifacts]'],
+  [homedir(),'[home]'],[tmpdir(),'[temp]'],[hostname(),'[local-host]'],
+]));
 if (!results.some(row=>row.name==='Stop only owned Supabase stack' && row.code!==0)) await rm(scratch,{recursive:true,force:true});
 if (results.some(row=>row.code!==0)) process.exit(1);
