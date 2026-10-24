@@ -34,18 +34,22 @@ export function IdentityProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     let hadSession = false;
+    let currentUser: string | undefined;
     void supabase.auth.getSession().then(({ data, error }) => {
       if (!active) return;
       // A stored session that Auth could not restore means it expired while the app was closed.
       if ((error?.status && error.status < 500) || (!error && !data.session && sessionWasStored)) void expireSession('expired');
       hadSession = Boolean(data.session);
+      currentUser ??= data.session?.user.id;
       setSession(data.session);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, next) => {
       if (event === 'SIGNED_OUT' && hadSession && !sessionEnd.expected) void expireSession('expired');
       hadSession = Boolean(next);
+      const userChanged = next?.user.id !== currentUser;
+      currentUser = next?.user.id;
       setSession(next);
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') queryClient.removeQueries();
+      if (event === 'SIGNED_OUT' || (event === 'SIGNED_IN' && userChanged)) queryClient.removeQueries();
     });
     return () => { active = false; subscription.unsubscribe(); };
   }, [queryClient]);

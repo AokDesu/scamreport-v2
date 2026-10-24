@@ -101,20 +101,20 @@ describe('report form', () => {
   test('with consent, sends the exact API body including the contact snapshot', async () => {
     await renderFlow();
     await fillDetails();
-    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '02-555-0101' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '0X-XXX-1001' } });
     await submitConsent(/^ยินยอม ให้ติดต่อกลับได้/);
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe(`/citizen/report/received/${created.id}`));
     expect(posted()).toEqual({
       organization_id: bank.id, scam_type: 'shopping', channel: 'sms', amount: '2500',
       description: 'ได้ SMS ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงิน', consent_contact: true,
-      contact_email: 'citizen@demo.example.test', contact_phone: '02-555-0101',
+      contact_email: 'citizen@demo.example.test', contact_phone: '0X-XXX-1001',
     });
   });
 
   test('without consent, no contact detail leaves the device', async () => {
     await renderFlow();
     await fillDetails();
-    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '02-555-0101' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '0X-XXX-1001' } });
     await submitConsent(/^ไม่ยินยอม/);
     await waitFor(() => expect(calls.some(call => call.path === '/reports')).toBe(true));
     const body = posted();
