@@ -125,6 +125,46 @@ describe('Permission',()=>{
     await error(await request('/reports/20000000-0000-4000-8000-000000000001/evidence','executive-a'),404,'NOT_FOUND');
     await error(await request('/reports','executive-a'),403,'FORBIDDEN');
   });
+  test('roster names go to moderators and admins; sign-in emails only to admins; executives denied',async()=>{
+    const asAdmin = await data<Array<{user_id:string;role:string;display_name:string;email:string|null}>>(await request(`/members?organization_id=${A}`,'admin-a'));
+    expect(asAdmin.map(row=>row.role).sort()).toEqual(['executive','moderator','org_admin']);
+    expect(asAdmin.every(row=>row.email?.endsWith('@demo.example.test') && row.display_name.length>0)).toBe(true);
+    const asModerator = await data<Array<{email:string|null}>>(await request(`/members?organization_id=${A}`,'moderator-a'));
+    expect(asModerator.length).toBe(3);expect(asModerator.every(row=>row.email===null)).toBe(true);
+    await error(await request(`/members?organization_id=${A}`,'executive-a'),403,'FORBIDDEN');
+    await error(await request(`/members?organization_id=${A}`,'citizen'),403,'FORBIDDEN');
+  });
+  test('executive breakdown is counts only, for the executive’s own organization',async()=>{
+    const rows = await data<Array<Record<string,unknown>>>(await request(`/statistics/breakdown?organization_id=${A}`,'executive-a'));
+    expect(rows.some(row=>row.dimension==='scam_type')).toBe(true);
+    for (const row of rows) expect(Object.keys(row).sort()).toEqual(['bucket','dimension','report_count']);
+    await error(await request(`/statistics/breakdown?organization_id=${A}`,'moderator-a'),403,'FORBIDDEN');
+    await error(await request(`/statistics/breakdown?organization_id=${A}`,'admin-a'),403,'FORBIDDEN');
+  });
+  test('denied staff attempts are logged with their request ID; citizens cannot write any tenant log',async()=>{
+    const report = await create();
+    const executiveId = 'denied-executive-'+crypto.randomUUID();
+    await error(await request(`/moderation/${report.id}`,'executive-a',{headers:{'X-Request-Id':executiveId}}),403,'FORBIDDEN');
+    const selfId = 'denied-self-'+crypto.randomUUID();
+    await error(await request('/memberships','admin-a',{method:'PUT',headers:{'X-Request-Id':selfId},body:JSON.stringify({organization_id:A,user_id:adminId,role:'executive'})}),403,'FORBIDDEN');
+    const citizenRequestId = 'denied-citizen-'+crypto.randomUUID();
+    await error(await request(`/moderation/${report.id}`,'citizen',{headers:{'X-Request-Id':citizenRequestId}}),403,'FORBIDDEN');
+    const forged = await clients.get('citizen')!.rpc('record_denial',{target:A,denied_action:'forged'});
+    expect(forged.error).toBeNull();
+    const audit = await data<Array<{action:string;request_id:string;actor_id:string|null}>>(await request(`/audit?organization_id=${A}&limit=100`,'admin-a'));
+    expect(audit.find(row=>row.request_id===executiveId)?.action).toBe('denied.moderation.report');
+    expect(audit.find(row=>row.request_id===selfId)?.action).toBe('denied.memberships.self');
+    expect(audit.some(row=>row.request_id===citizenRequestId || row.action==='denied.forged')).toBe(false);
+  });
+  test('each staff view of a consented contact is audited with its request ID',async()=>{
+    const report = await create({consent_contact:true});
+    const requestId = 'contact-view-'+crypto.randomUUID();
+    await data(await request(`/reports/${report.id}/contacts`,'moderator-a',{headers:{'X-Request-Id':requestId}}));
+    const audit = await data<Array<{action:string;request_id:string;resource_id:string;ticket_no:number|null}>>(await request(`/audit?organization_id=${A}&limit=100`,'admin-a'));
+    const view = audit.find(row=>row.request_id===requestId);
+    expect(view?.action).toBe('report_contacts.view');
+    expect(view?.resource_id).toBe(report.id);expect(view?.ticket_no).toBe(report.ticket_no);
+  });
 });
 describe('Cross-Tenant Denial',()=>{
   test('queue, audit, membership and statistics cannot target a different organization',async()=>{
@@ -139,6 +179,17 @@ describe('Cross-Tenant Denial',()=>{
     await error(await request(`/reports/${report.id}/withdraw`,'citizen-two',{method:'POST'}),404,'NOT_FOUND');
     const own = await data<Report[]>(await request('/reports'));
     expect(own.find(row=>row.id===report.id)?.status).toBe('pending');
+  });
+  test('report detail with history opens only inside the assigned organization',async()=>{
+    const own = await create();
+    await data(await request(`/moderation/${own.id}`,'moderator-a',{method:'POST',body:JSON.stringify({status:'flagged'})}));
+    const detail = await data<{report:Report;history:Array<{from_status:string;to_status:string;actor_id:string}>}>(await request(`/moderation/${own.id}`,'moderator-a'));
+    expect(detail.report.ticket_no).toBe(own.ticket_no);
+    expect(detail.history.map(row=>[row.from_status,row.to_status,row.actor_id])).toEqual([['pending','flagged','10000000-0000-4000-8000-000000000004']]);
+    expect((await data<{report:Report}>(await request(`/moderation/${own.id}`,'admin-a'))).report.id).toBe(own.id);
+    await error(await request(`/moderation/${own.id}`,'moderator-b'),404,'NOT_FOUND');
+    await error(await request(`/moderation/${own.id}`,'admin-b'),404,'NOT_FOUND');
+    await error(await request('/moderation/20000000-0000-4000-8000-000000000003','moderator-a'),404,'NOT_FOUND');
   });
 });
 describe('API Error',()=>{
@@ -229,6 +280,17 @@ describe('Security',()=>{
       }
     }
     expect((await data<Me>(await request('/me'))).id).toBe(citizenId);
+  });
+  test('ticket numbers are server-assigned and cannot be rewritten through the Data API',async()=>{
+    const first = await create(); const second = await create();
+    expect(second.ticket_no).toBeGreaterThan(first.ticket_no);
+    for (const account of ['citizen','moderator-a'] as const) {
+      const rewrite = await clients.get(account)!.from('reports').update({ticket_no:1}).eq('id',first.id);
+      // Identity columns reject writes before privileges (428C9); either way nothing changes.
+      expect(['42501','428C9']).toContain(rewrite.error?.code);
+    }
+    const own = await data<Report[]>(await request('/reports?limit=100'));
+    expect(own.find(row=>row.id===first.id)?.ticket_no).toBe(first.ticket_no);
   });
 });
 describe('Regression',()=>{
