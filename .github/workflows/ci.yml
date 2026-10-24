@@ -25,9 +25,9 @@ jobs:
           version: 2.121.0
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
-      - name: Start local Supabase (no hosted credentials)
-        run: supabase start --exclude studio,postgres-meta,realtime,imgproxy,edge-runtime,logflare,vector,supavisor
-      - name: Database, API and web component tests; generate real report
+      - name: Install only Chromium and its Linux dependencies
+        run: bunx --no-install playwright install --with-deps chromium
+      - name: Database, API, web component and Chromium acceptance; generate real report
         id: tests
         run: |
           rm -f docs/test-report.md
@@ -38,6 +38,13 @@ jobs:
         with:
           name: acceptance-report
           path: docs/test-report.md
+      - name: Upload Chromium cases and failure evidence
+        if: always() && env.E2E_ARTIFACTS_DIR != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromium-acceptance
+          path: ${{ env.E2E_ARTIFACTS_DIR }}
+          retention-days: 7
       - run: bun run build
       - uses: docker/setup-buildx-action@v3
       - name: Image names
@@ -69,6 +76,3 @@ jobs:
           tags: |
             ${{ steps.image.outputs.prefix }}-web:latest
             ${{ steps.image.outputs.prefix }}-web:${{ github.sha }}
-      - name: Stop this job's local stack
-        if: always()
-        run: supabase stop --no-backup

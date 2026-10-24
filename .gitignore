@@ -6,3 +6,5 @@ dist/
 supabase/.temp/
 supabase/.branches/
 *.tsbuildinfo
+test-results/
+playwright-report/
