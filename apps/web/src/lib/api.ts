@@ -1,6 +1,7 @@
 import type { ApiError, ErrorCode } from '@scamreport/shared';
 import { supabase } from './supabase';
 import { expireSession } from './session';
+import { DraftStorageError } from './draft';
 
 /** A failed API call. Screens show translated text for `code`; `requestId` is the support reference. */
 export class ApiFailure extends Error {
@@ -48,6 +49,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 /** Translation key for a failure that a screen shows inline (403/404 have dedicated screens). */
 export function failureMessageKey(error: unknown) {
+  if (error instanceof DraftStorageError) return 'errors.storage';
   if (!(error instanceof ApiFailure) || error.status === 0) return 'errors.network';
   if (error.code === 'VALIDATION_FAILED') return 'errors.validation';
   if (error.code === 'CONFLICT') return 'errors.conflict';

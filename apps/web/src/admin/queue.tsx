@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StatusBadge } from '@/components/status-badge';
 import { TicketNumber } from '@/components/ticket';
-import { Content, DeniedPanel, isDenied, ScopeChip, TopBar, useConsole, useNextInLine, useQueueCounts, useQueueTab } from './shell';
+import { Content, DeniedPanel, isDenied, ReadError, ScopeChip, TopBar, useConsole, useNextInLine, useQueueCounts, useQueueTab } from './shell';
 
 type Tab = QueueTab;
 const tabs: Tab[] = ['pending', 'flagged', 'decided'];
@@ -60,7 +60,9 @@ export function QueuePage() {
         <section aria-labelledby="next-label" className="flex items-center gap-5 rounded-xl bg-sidebar px-5 py-4 text-sidebar-foreground">
           <div className="flex flex-col">
             <h2 id="next-label" className="font-heading text-[0.8125rem] font-medium text-sidebar-muted">{t('queue.nextLabel')}</h2>
-            {next ? <TicketNumber ticketNo={next.ticket_no} createdAt={next.created_at} size="md" className="text-white" /> : <span className="font-heading text-lg text-white">{t('queue.noneWaiting')}</span>}
+            {nextReport.isError ? <ReadError error={nextReport.error} onRetry={() => void nextReport.refetch()} />
+              : nextReport.isPending ? <span role="status">{t('app.loading')}</span>
+              : next ? <TicketNumber ticketNo={next.ticket_no} createdAt={next.created_at} size="md" className="text-white" /> : <span className="font-heading text-lg text-white">{t('queue.noneWaiting')}</span>}
           </div>
           {next && <>
             <span aria-hidden="true" className="w-px self-stretch bg-sidebar-border" />
@@ -69,7 +71,7 @@ export function QueuePage() {
               <p className="text-sidebar-muted">{t('queue.waited', { time: elapsed(next.created_at, t) })} · {t(next.consent_contact ? 'queue.consent' : 'queue.noConsent')}</p>
             </div>
           </>}
-          <Button variant="signal" size="lg" className="ml-auto" disabled={!next} onClick={() => next && navigate(`/admin/reports/${next.id}`)}>
+          <Button variant="signal" size="lg" className="ml-auto" disabled={!next || nextReport.isError || nextReport.isPending} onClick={() => next && navigate(`/admin/reports/${next.id}`)}>
             <ArrowRight aria-hidden="true" />{t('queue.callNext')}
           </Button>
         </section>
@@ -155,7 +157,7 @@ export function QueuePage() {
                 })}
             </TableBody>
           </Table>
-          {capped && <p role="status" className="border-t px-4 py-3 text-sm text-muted-foreground">{t(tab === 'decided' ? 'queue.cappedNewest' : 'queue.cappedOldest', { count: loaded, total: tabTotal })}</p>}
+          {capped && <p role="status" className="border-t px-4 py-3 text-sm text-muted-foreground">{t('queue.cappedNewest', { count: loaded, total: tabTotal })}</p>}
           {rows.length > 0 && (
             <nav aria-label={t('queue.pagination')} className="flex items-center justify-between border-t px-4 py-3 text-sm text-muted-foreground">
               <span>{t('queue.showing', { from: current * pageSize + 1, to: current * pageSize + visible.length, total: rows.length })}</span>

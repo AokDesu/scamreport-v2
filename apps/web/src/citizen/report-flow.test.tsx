@@ -6,7 +6,7 @@ import type { Me } from '@scamreport/shared';
 import i18n from '@/i18n';
 import type * as ApiModule from '@/lib/api';
 import { ApiFailure } from '@/lib/api';
-import type { Draft } from '@/lib/draft';
+import { drafts, type Draft } from '@/lib/draft';
 import { ReportFlow } from './report-flow';
 import { normalizeAmount, toReportInput, type ReportValues } from './report-schema';
 
@@ -72,6 +72,7 @@ async function submitConsent(choice: RegExp) {
 const posted = () => JSON.parse(String(calls.find(call => call.path === '/reports' && call.init?.method === 'POST')?.init?.body));
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   calls.length = 0;
   savedDrafts.clear();
   reply = path => path === '/tenants' ? [unit, bank] : created;
@@ -114,13 +115,27 @@ describe('report form', () => {
   test('without consent, no contact detail leaves the device', async () => {
     await renderFlow();
     await fillDetails();
-    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '0X-XXX-1001' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: 'X'.repeat(41) } });
     await submitConsent(/^ไม่ยินยอม/);
     await waitFor(() => expect(calls.some(call => call.path === '/reports')).toBe(true));
     const body = posted();
     expect(body.consent_contact).toBe(false);
     expect(body).not.toHaveProperty('contact_email');
     expect(body).not.toHaveProperty('contact_phone');
+  });
+
+  test('an overlong consented phone names and associates its translated error', async () => {
+    await renderFlow();
+    await fillDetails();
+    const phone = screen.getByRole('textbox', { name: 'เบอร์โทร' });
+    fireEvent.change(phone, { target: { value: 'X'.repeat(41) } });
+    await submitConsent(/^ยินยอม ให้ติดต่อกลับได้/);
+    expect(await screen.findByText('กรอกเบอร์โทรไม่เกิน 40 ตัวอักษร')).toBeTruthy();
+    expect(phone.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(phone.getAttribute('aria-describedby')!)?.textContent).toContain('40');
+    expect(calls.some(call => call.path === '/reports')).toBe(false);
+    await i18n.changeLanguage('en');
+    expect(await screen.findByText('Keep the phone number within 40 characters')).toBeTruthy();
   });
 
   test('consent step requires a destination and a consent choice before sending', async () => {
@@ -190,6 +205,65 @@ describe('report draft (kept through Session Expired)', () => {
     target: { files: [new File(['%PDF-1.4'], 'slip.pdf', { type: 'application/pdf' })] },
   });
   const evidenceCalls = () => calls.filter(call => call.path.endsWith('/evidence'));
+  test('immediate consent edits are durable before a create-time 401', async () => {
+    await renderFlow();
+    attachSlip();
+    await fillDetails();
+    await new Promise(resolve => setTimeout(resolve, 850));
+    fireEvent.click(screen.getByRole('radio', { name: 'ธนาคารสาธิต' }));
+    fireEvent.click(screen.getByRole('radio', { name: /^ยินยอม ให้ติดต่อกลับได้/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '0X-XXX-1002' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'อีเมล' }), { target: { value: 'latest@demo.example.test' } });
+    reply = path => {
+      if (path === '/tenants') return [unit, bank];
+      expect(savedDrafts.get(me.id)).toMatchObject({ organization_id: bank.id, consent: 'yes', contact_email: 'latest@demo.example.test', contact_phone: '0X-XXX-1002' });
+      expect(savedDrafts.get(me.id)?.files?.[0]?.name).toBe('slip.pdf');
+      throw new ApiFailure(401, 'SESSION_EXPIRED', 'create-expired');
+    };
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งเรื่อง' }));
+    await waitFor(() => expect(calls.some(call => call.path === '/reports')).toBe(true));
+    expect(savedDrafts.get(me.id)?.sent).toBeUndefined();
+  });
+  test('a failed initial checkpoint stops creation and a failed sent checkpoint stops uploads', async () => {
+    await renderFlow();
+    attachSlip();
+    await fillDetails();
+    fireEvent.click(screen.getByRole('radio', { name: 'ธนาคารสาธิต' }));
+    fireEvent.click(screen.getByRole('radio', { name: /^ไม่ยินยอม/ }));
+    await new Promise(resolve => setTimeout(resolve, 850));
+    const save = vi.spyOn(drafts, 'save').mockRejectedValueOnce(new Error('storage failed'));
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งเรื่อง' }));
+    await screen.findByRole('alert');
+    expect(calls.some(call => call.path === '/reports')).toBe(false);
+    reply = path => {
+      if (path === '/tenants') return [unit, bank];
+      save.mockRejectedValueOnce(new Error('checkpoint failed'));
+      return created;
+    };
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งเรื่อง' }));
+    await screen.findByRole('button', { name: 'ลองแนบหลักฐานอีกครั้ง' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'ลองแนบหลักฐานอีกครั้ง' }).hasAttribute('disabled')).toBe(false));
+    expect(evidenceCalls()).toHaveLength(0);
+  });
+  test('discard cancels an autosave while draft deletion is pending', async () => {
+    savedDrafts.set(me.id, { description: story, files: [new File(['%PDF-1.4'], 'left.pdf', { type: 'application/pdf' })], sent: { reportId: created.id, attached: 0 } });
+    await renderFlow();
+    let finish!: () => void;
+    vi.spyOn(drafts, 'remove').mockImplementation(async userId => {
+      savedDrafts.delete(userId);
+      await new Promise<void>(resolve => { finish = resolve; });
+      return undefined;
+    });
+    const save = vi.spyOn(drafts, 'save');
+    fireEvent.change(screen.getByRole('textbox', { name: 'เล่าเหตุการณ์' }), { target: { value: story + ' ล่าสุด' } });
+    fireEvent.click(screen.getByRole('button', { name: 'ทิ้งไฟล์และเริ่มแจ้งเรื่องใหม่' }));
+    await new Promise(resolve => setTimeout(resolve, 600));
+    expect(save).not.toHaveBeenCalled();
+    finish();
+    await waitFor(() => expect(screen.queryByText('เรื่องนี้ส่งไปแล้ว')).toBeNull());
+    await new Promise(resolve => setTimeout(resolve, 600));
+    expect(savedDrafts.has(me.id)).toBe(false);
+  });
   test('a failed upload keeps the draft, the file and the report ID, and the retry attaches to the same report', async () => {
     let uploadsFail = true;
     reply = path => {
@@ -250,8 +324,11 @@ describe('report draft (kept through Session Expired)', () => {
     });
     reply = path => path === '/tenants' ? [unit, bank] : { path: 'x' };
     await renderFlow();
+    fireEvent.change(screen.getByRole('textbox', { name: 'เล่าเหตุการณ์' }), { target: { value: '' } });
     fireEvent.click(await screen.findByRole('button', { name: 'ถัดไป: เลือกผู้ที่ติดต่อคุณได้' }));
     await screen.findByRole('heading', { level: 1, name: 'ให้หน่วยงานติดต่อคุณได้ไหม' });
+    fireEvent.change(screen.getByRole('textbox', { name: 'อีเมล' }), { target: { value: 'invalid' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: 'X'.repeat(41) } });
     await new Promise(resolve => setTimeout(resolve, 850));
     fireEvent.click(screen.getByRole('button', { name: 'ลองแนบหลักฐานอีกครั้ง' }));
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe(`/citizen/report/received/${created.id}`));

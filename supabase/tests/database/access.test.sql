@@ -107,6 +107,18 @@ set local role anon;
 select throws_ok($$select public.record_denial('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','anon_probe')$$,'42501',null,'Permission: anonymous cannot record denials');
 select throws_ok($$select * from public.read_report_contact('20000000-0000-4000-8000-000000000001')$$,'42501',null,'Permission: anonymous cannot call the contact function');
 reset role;
+insert into public.memberships values ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','10000000-0000-4000-8000-000000000001','moderator');
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"10000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+select is((select count(*)::integer from public.report_contacts),0,'Security: a promoted reporter loses direct snapshot access');
+select results_eq($$select email from public.read_report_contact('20000000-0000-4000-8000-000000000001')$$,array['citizen@demo.example.test'],'Permission: a promoted reporter uses audited disclosure');
+reset role;
+select is((select count(*)::integer from public.audit_log where action='report_contacts.view' and actor_id='10000000-0000-4000-8000-000000000001'),1,'Audit: promoted owner disclosure is recorded');
+delete from public.memberships where user_id='10000000-0000-4000-8000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"10000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+select is((select count(*)::integer from public.report_contacts where report_id='20000000-0000-4000-8000-000000000001'),1,'Permission: citizen owner access returns after staff removal');
+reset role;
 create function public.test_audit_down() returns trigger language plpgsql as $f$ begin
   if new.action = 'report_contacts.view' then raise exception using errcode = 'XX000', message = 'audit unavailable'; end if; return new; end $f$;
 create trigger test_audit_down before insert on public.audit_log for each row execute function public.test_audit_down();

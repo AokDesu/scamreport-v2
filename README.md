@@ -78,14 +78,16 @@ All endpoints except `/health` and `/openapi*` require `Authorization: Bearer <S
 | `DELETE /memberships` | Remove another user’s tenant role; same denials |
 | `GET /roles` | Capability catalog; not a source of tenant grants |
 | `POST /reports` | Citizen report and contact snapshot, atomic |
+| `GET /reports/:id` | One citizen-owned report, including older tickets; foreign IDs are 404 |
 | `GET /reports` | Citizen’s own reports, paginated |
 | `POST /reports/:id/withdraw` | Citizen withdraws own report |
 | `POST /reports/:id/evidence` | Multipart `file`; own pending report; private immutable PNG/JPEG/PDF ≤5 MiB |
 | `GET /reports/:id/evidence` | List authorized report’s evidence paths |
 | `GET /reports/:id/evidence/:filename` | Authorized attachment download; no public/signed URL |
-| `GET /reports/:id/contacts` | Owner, or assigned moderator/admin with consent (staff read it only through the audited `read_report_contact` function) |
+| `GET /reports/:id/contacts` | Citizen owner, or assigned moderator/admin with consent; all staff reads, including a staff owner's, use audited `read_report_contact` |
 | `GET /feed?search=…` | Verified projection; search scam type/channel only |
-| `GET /moderation/queue?organization_id=…&status=pending\|flagged\|decided` | Own organization’s non-withdrawn cases, optionally one tab (waiting tabs oldest first); moderator/admin only |
+| `GET /moderation/queue?organization_id=…&status=pending\|flagged\|decided` | Own organization’s non-withdrawn cases, optionally one tab, newest first; moderator/admin only |
+| `GET /moderation/next?organization_id=…` | Oldest pending report across the full eligible queue, independent of the table |
 | `GET /moderation/queue/counts?organization_id=…` | Per-tab totals (`pending`, `flagged`, `decided`) behind the tab badges and “Call next” |
 | `POST /moderation/:id` | Moderator chooses verified/rejected/flagged from pending/flagged |
 | `GET /moderation/:id` | One report of the caller's organization with its decision history; foreign or withdrawn IDs are 404; executives get a logged 403 |
@@ -99,7 +101,7 @@ Every `403` the API gives a staff member from a role, consent or citizen-only ch
 
 Lists support `limit` (1–100, default 20) and `offset` (0–100000, default 0), except small tenant/membership catalogs. Success is `{ "data": ... }`. Elysia built-in schemas validate parameters, queries, JSON and files; unknown JSON fields are rejected rather than silently stripped. OpenAPI documents schemas and status codes.
 
-The console queue table loads at most 100 rows per tab: the oldest 100 for Pending and Flagged (queue order, so “Call next” is always correct), the newest 100 for Decided. The tab badges, the rail count and “Call next” come from the server and stay exact beyond 100; when a tab holds more, the table says so. Type, channel and ticket-number filters apply to the loaded rows only. Server-side paging and search are tracked as a follow-up (issue #14).
+The console queue table loads at most 100 rows per tab: the newest 100 for Pending, Flagged and Decided. The tab badges, the rail count and “Call next” come from the server and stay exact beyond 100; when a tab holds more, the table says so. Type, channel and ticket-number filters apply to the loaded rows only. Server-side paging and search are tracked as a follow-up (issue #14).
 
 The application bounds total request bodies to **6 MiB before decoding**, counting streamed chunks as well as checking declared lengths. Oversized requests return the same `422 VALIDATION_FAILED` envelope and request ID; the file itself remains limited to 5 MiB. Native Bun limits are not used for this operational bound because native 413 responses skip application error hooks. Rejected body connections close, and the web proxy avoids pooling body requests to prevent Bun 1.3 from reusing a rejected upload connection.
 

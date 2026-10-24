@@ -22,23 +22,31 @@ export type Draft = {
 const database = 'scamreport';
 const store = 'drafts';
 
-function open(): Promise<IDBDatabase | null> {
-  if (typeof indexedDB === 'undefined') return Promise.resolve(null);
-  const { promise, resolve } = Promise.withResolvers<IDBDatabase | null>();
-  const request = indexedDB.open(database, 1);
-  request.onupgradeneeded = () => request.result.createObjectStore(store);
-  request.onsuccess = () => resolve(request.result);
-  request.onerror = () => resolve(null);
-  return promise;
+export class DraftStorageError extends Error {
+  constructor() { super('Draft storage is unavailable.'); }
 }
-async function run<T>(mode: IDBTransactionMode, action: (objects: IDBObjectStore) => IDBRequest<T>): Promise<T | undefined> {
-  const db = await open();
-  if (!db) return undefined;
-  const { promise, resolve } = Promise.withResolvers<T | undefined>();
-  const request = action(db.transaction(store, mode).objectStore(store));
-  request.onsuccess = () => resolve(request.result);
-  request.onerror = () => resolve(undefined);
-  return promise;
+
+let connection: Promise<IDBDatabase> | undefined;
+function open(): Promise<IDBDatabase> {
+  connection ??= new Promise<IDBDatabase>((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') return reject(new DraftStorageError());
+    const request = indexedDB.open(database, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(store);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(new DraftStorageError());
+  }).catch(error => { connection = undefined; throw error; });
+  return connection;
+}
+async function run<T>(mode: IDBTransactionMode, action: (objects: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  try {
+    const db = await open();
+    return await new Promise<T>((resolve, reject) => {
+      const transaction = db.transaction(store, mode);
+      const request = action(transaction.objectStore(store));
+      transaction.oncomplete = () => resolve(request.result);
+      transaction.onabort = transaction.onerror = () => reject(new DraftStorageError());
+    });
+  } catch { throw new DraftStorageError(); }
 }
 
 export const drafts = {

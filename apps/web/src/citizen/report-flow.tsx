@@ -214,9 +214,11 @@ function ConsentStep({ form }: { form: UseFormReturn<ReportValues> }) {
           <div className="flex items-center gap-3 py-2">
             <Phone aria-hidden="true" className="size-5 flex-none text-primary" />
             <Label htmlFor="contact-phone" className="w-24 flex-none font-sans text-[0.9375rem] font-normal text-muted-foreground">{t('report.sharePhone')}</Label>
-            <Input id="contact-phone" type="tel" autoComplete="tel" inputMode="tel" className="h-12 text-base" placeholder={t('report.sharePhonePlaceholder')} {...register('contact_phone')} />
+            <Input id="contact-phone" type="tel" autoComplete="tel" inputMode="tel" className="h-12 text-base" placeholder={t('report.sharePhonePlaceholder')}
+              aria-invalid={Boolean(errors.contact_phone)} aria-describedby={errors.contact_phone ? 'phone-error' : undefined} {...register('contact_phone')} />
           </div>
           <FieldError id="contact-error" message={errors.contact_email?.message} />
+          <FieldError id="phone-error" message={errors.contact_phone?.message} />
         </div>
         <p className="text-[0.9375rem] leading-[1.55] text-muted-foreground">{t('report.shareNever')}</p>
       </Section>
@@ -256,6 +258,8 @@ export function ReportFlow({ me }: { me: Me }) {
   const [failure, setFailure] = useState<ApiFailure | Error | null>(null);
   const values = useWatch({ control: form.control });
   const formRef = useRef<HTMLFormElement>(null);
+  const autosave = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const busy = useRef(false);
   const { reset, getValues } = form;
 
   useEffect(() => {
@@ -269,21 +273,21 @@ export function ReportFlow({ me }: { me: Me }) {
         toast(i18n.t('report.draftRestored'));
       }
       setLoaded(true);
-    });
+    }).catch(error => { if (active) setFailure(error); });
     return () => { active = false; };
   }, [me.id, reset, getValues]);
 
   useEffect(() => {
     if (!loaded) return;
     // While a submit runs it owns the draft, so a pending autosave can never undo its saves or its final removal.
-    if (progress) return;
+    if (progress || busy.current) return;
     const started = Boolean(values.scam_type || values.channel || values.amount || values.description || files.length);
-    const timer = setTimeout(() => {
-      if (!started) return;
+    autosave.current = setTimeout(() => {
+      if (!started || busy.current) return;
       const draft: Draft = { ...Object.fromEntries(draftFields.map(key => [key, values[key]])), files, step, sent };
-      void drafts.save(me.id, draft);
+      void drafts.save(me.id, draft).catch(setFailure);
     }, 400);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(autosave.current);
   }, [values, files, step, sent, progress, loaded, me.id]);
 
   function focusFirstError() {
@@ -297,7 +301,8 @@ export function ReportFlow({ me }: { me: Me }) {
   // Older users often double-click: ignore a second submit that lands just after moving to step 2.
   const consentSince = useRef(0);
   async function next() {
-    const ok = await form.trigger(detailFields as unknown as FieldPath<ReportValues>[]);
+    if (busy.current || !loaded) return;
+    const ok = sent || await form.trigger(detailFields as unknown as FieldPath<ReportValues>[]);
     if (!ok) return focusFirstError();
     consentSince.current = Date.now();
     setParams({ step: 'consent' });
@@ -305,24 +310,35 @@ export function ReportFlow({ me }: { me: Me }) {
   }
 
   async function startOver() {
-    await drafts.remove(me.id);
-    reset({ ...emptyReport, contact_email: me.email ?? '' });
-    setFiles([]);
-    setSent(undefined);
+    if (busy.current) return;
+    busy.current = true;
+    clearTimeout(autosave.current);
+    setProgress(t('app.loading'));
     setFailure(null);
-    setParams({ step: 'details' });
-    window.scrollTo(0, 0);
+    try {
+      await drafts.remove(me.id);
+      reset({ ...emptyReport, contact_email: me.email ?? '' });
+      setFiles([]);
+      setSent(undefined);
+      setParams({ step: 'details' });
+      window.scrollTo(0, 0);
+    } catch (error) { setFailure(error as Error); }
+    finally { busy.current = false; setProgress(null); }
   }
 
-  const submit = form.handleSubmit(async valid => {
+  async function submit(valid: ReportValues) {
+    if (busy.current || !loaded) return;
+    busy.current = true;
+    clearTimeout(autosave.current);
     setFailure(null);
     setProgress(t('report.submitting'));
     // The draft is the record of progress: it keeps the created report's ID and every file not yet
     // uploaded, so an expiry or a failed upload is retried onto the same report, never a duplicate.
-    const keep = (progressNow: NonNullable<Draft['sent']>, left: File[]) => drafts.save(me.id, { ...Object.fromEntries(draftFields.map(key => [key, valid[key]])), files: left, step, sent: progressNow } as Draft);
+    const keep = (progressNow: Draft['sent'], left: File[]) => drafts.save(me.id, { ...Object.fromEntries(draftFields.map(key => [key, valid[key]])), files: left, step, sent: progressNow } as Draft);
     try {
       let report: Report | undefined;
       let progressNow = sent;
+      await keep(progressNow, files);
       if (!progressNow) {
         report = await api<Report>('/reports', { method: 'POST', body: JSON.stringify(toReportInput(valid)) });
         progressNow = { reportId: report.id, attached: 0 };
@@ -349,6 +365,7 @@ export function ReportFlow({ me }: { me: Me }) {
       if (left.length) {
         toast.error(t('report.uploadFailed', { count: left.length }));
         setProgress(null);
+        busy.current = false;
         return;
       }
       await drafts.remove(me.id);
@@ -357,8 +374,9 @@ export function ReportFlow({ me }: { me: Me }) {
       if (error instanceof ApiFailure && error.status === 403) navigate('/unauthorized', { state: { need: 'citizen', requestId: error.requestId } });
       else setFailure(error as Error);
       setProgress(null);
+      busy.current = false;
     }
-  }, focusFirstError);
+  }
 
   return (
     <>
@@ -374,7 +392,10 @@ export function ReportFlow({ me }: { me: Me }) {
         <form ref={formRef} noValidate className="flex flex-col gap-4" onSubmit={event => {
           event.preventDefault();
           if (step === 'details') void next();
-          else if (Date.now() - consentSince.current > 800) void submit(event);
+          else if (Date.now() - consentSince.current > 800) {
+            if (sent) void submit(getValues());
+            else void form.handleSubmit(submit, focusFirstError)(event);
+          }
         }}>
           {sent && (
             <section aria-labelledby="sent-title" className="flex flex-col gap-3 rounded-xl bg-signal-soft p-4 text-signal-foreground">
@@ -384,18 +405,19 @@ export function ReportFlow({ me }: { me: Me }) {
             </section>
           )}
           {/* The saved draft loads first, so it can never overwrite answers typed meanwhile. */}
-          {!loaded ? <Skeleton role="status" aria-label={t('app.loading')} className="h-96 rounded-xl bg-card" />
+          {!loaded ? !failure && <Skeleton role="status" aria-label={t('app.loading')} className="h-96 rounded-xl bg-card" />
             : step === 'details' ? <DetailsStep form={form} files={files} setFiles={setFiles} />
             : <ConsentStep form={form} />}
           {failure && (
             <p role="alert" className="rounded-md bg-danger-soft px-4 py-3 text-base text-danger-soft-foreground">
               {t(failureMessageKey(failure))}
+              {!loaded && <Button type="button" variant="link" onClick={() => window.location.reload()}>{t('app.retry')}</Button>}
               {failure instanceof ApiFailure && <span className="mt-1 block font-[Noto_Sans] text-sm tabular-nums">{t('errors.reference', { id: failure.requestId })}</span>}
             </p>
           )}
           <BottomActions>
             {progress && <p role="status" className="text-center text-base text-muted-foreground">{progress}</p>}
-            <Button type="submit" size="lg" disabled={Boolean(progress)}>
+            <Button type="submit" size="lg" disabled={!loaded || Boolean(progress)}>
               {step === 'details' ? <>{t('report.next')}<ArrowRight aria-hidden="true" /></> : <><Send aria-hidden="true" />{t(sent ? 'report.retryUpload' : 'report.submit')}</>}
             </Button>
           </BottomActions>

@@ -6,6 +6,8 @@ import { sessionWasStored, supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
 import { expireSession, lastAccount, sessionEnd } from '@/lib/session';
 import { drafts } from '@/lib/draft';
+import { toast } from 'sonner';
+import i18n from '@/i18n';
 
 type Identity = {
   /** undefined while Auth initializes; null when signed out. */
@@ -14,7 +16,7 @@ type Identity = {
   pending: boolean;
   error: boolean;
   retry: () => void;
-  signOut: () => Promise<void>;
+  signOut: () => Promise<boolean>;
 };
 const IdentityContext = createContext<Identity | null>(null);
 
@@ -69,6 +71,10 @@ export function IdentityProvider({ children }: { children: ReactNode }) {
       if (userId) await drafts.remove(userId);
       lastAccount.clear();
       await supabase.auth.signOut({ scope: 'local' });
+      return true;
+    } catch {
+      toast.error(i18n.t('errors.storage'));
+      return false;
     } finally { sessionEnd.expected = false; }
   }
 

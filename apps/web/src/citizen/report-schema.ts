@@ -25,11 +25,13 @@ export const reportSchema = detailsSchema.extend({
   organization_id: z.uuid({ error: 'report.errors.destination' }),
   consent: z.enum(['yes', 'no'], { error: 'report.errors.consent' }),
   contact_email: z.string().trim(),
-  contact_phone: z.string().trim().max(40),
+  contact_phone: z.string().trim(),
 })
   .refine(values => values.no_loss || normalizeAmount(values.amount ?? '') !== null, { path: ['amount'], message: 'report.errors.amount', ...always })
-  .refine(values => values.consent !== 'yes' || !values.contact_email || z.email().safeParse(values.contact_email).success,
+  .refine(values => values.consent !== 'yes' || !values.contact_email || (values.contact_email.length <= 254 && z.email().safeParse(values.contact_email).success),
     { path: ['contact_email'], message: 'report.errors.email', ...always })
+  .refine(values => values.consent !== 'yes' || values.contact_phone.length <= 40,
+    { path: ['contact_phone'], message: 'report.errors.phone', ...always })
   .refine(values => values.consent !== 'yes' || Boolean(values.contact_email || values.contact_phone),
     { path: ['contact_email'], message: 'report.errors.contact', ...always });
 

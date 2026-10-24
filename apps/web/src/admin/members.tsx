@@ -15,7 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Content, DeniedPanel, isDenied, ScopeChip, TopBar, useConsole, useRoster } from './shell';
+import { Content, DeniedPanel, isDenied, ReadError, ScopeChip, TopBar, useConsole, useRoster } from './shell';
 
 const memberRoles: MemberRole[] = ['moderator', 'org_admin', 'executive'];
 
@@ -26,7 +26,7 @@ function RoleMatrix() {
   return (
     <section aria-labelledby="matrix-title" className="flex flex-col gap-4 rounded-xl bg-card px-5.5 py-5 shadow-sm">
       <h2 id="matrix-title" className="text-lg">{t('members.matrix')}</h2>
-      {roles.isPending ? <Skeleton className="h-72" /> : (
+      {roles.isPending ? <Skeleton className="h-72" /> : roles.isError ? <ReadError error={roles.error} onRetry={() => void roles.refetch()} /> : (
         <div className="overflow-hidden rounded-lg shadow-[inset_0_0_0_1px_var(--border)]">
           <Table>
             <TableHeader>

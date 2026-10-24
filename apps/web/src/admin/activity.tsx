@@ -28,7 +28,6 @@ export function ActivityPage() {
   const audit = useQuery({
     queryKey: ['audit', orgId, result, page],
     queryFn: () => api<AuditEntry[]>(`/audit?organization_id=${orgId}&limit=${pageSize}&offset=${page * pageSize}${result === 'all' ? '' : `&result=${result}`}`),
-    placeholderData: previous => previous,
   });
   const counts = useQuery({
     queryKey: ['audit-counts', orgId], queryFn: () => api<AuditCounts>(`/audit/counts?organization_id=${orgId}`), enabled: audit.isSuccess,
@@ -41,13 +40,12 @@ export function ActivityPage() {
   const entries = audit.data ?? [];
   const actionLabel = (action: string) => t(`activity.actions.${action}`, { defaultValue: t('activity.actions.unknown') });
   const memberName = (row: RosterMember) => row.display_name || row.email || t('members.unnamed');
-  // Citizens are never named in an organization log. Only a non-member who filed a report, or whose
-  // report is no longer visible because they withdrew it, is "the reporter"; any other non-member is a former member.
-  const isReporter = (entry: AuditEntry) => !member(entry.actor_id) && (entry.action === 'reports.insert' || (entry.action === 'reports.update' && entry.ticket_no === null));
+  const isReporter = (entry: AuditEntry) => entry.action === 'reports.insert' || (entry.action === 'reports.update' && !entry.is_moderation);
   const actorName = (entry: AuditEntry) => {
     if (entry.actor_id === null) return t('activity.system');
+    if (isReporter(entry)) return t('activity.reporter');
     const row = member(entry.actor_id);
-    return row ? memberName(row) : t(isReporter(entry) ? 'activity.reporter' : 'activity.formerMember');
+    return row ? memberName(row) : t('activity.formerMember');
   };
   const target = (entry: AuditEntry) => entry.ticket_no !== null ? null
     : entry.action.startsWith('memberships.') ? (member(entry.resource_id) ? memberName(member(entry.resource_id)!) : t('activity.formerMember'))
@@ -95,7 +93,7 @@ export function ActivityPage() {
                 : rows.length === 0 ? <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">{t(entries.length || result !== 'all' ? 'activity.emptyFiltered' : 'activity.empty')}</TableCell></TableRow>
                 : rows.map(entry => {
                   const denied = entry.action.startsWith('denied.');
-                  const actor = member(entry.actor_id);
+                  const actor = isReporter(entry) ? undefined : member(entry.actor_id);
                   const name = actorName(entry);
                   const targetText = target(entry);
                   return (

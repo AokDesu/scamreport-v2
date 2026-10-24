@@ -4,6 +4,7 @@ export const en: Resources = {
   app: { name: 'ScamReport', loading: 'Loading…', retry: 'Try again', back: 'Back', close: 'Close', language: 'Language', skip: 'Skip to main content', notifications: 'Notifications' },
   lang: { th: 'ไทย', en: 'EN', thName: 'ภาษาไทย', enName: 'English' },
   errors: {
+    storage: 'Your draft could not be saved or read on this device. Please try again before continuing.', unavailable: 'Unavailable',
     network: 'We could not reach the service. Check your connection and try again.',
     generic: 'That did not work. Please try again.',
     validation: 'Some details are not valid. Check them and try again.',
@@ -59,6 +60,7 @@ export const en: Resources = {
     photoLimitReached: 'You can attach up to {{count}} files', pdf: 'PDF',
     next: 'Next: who can contact you', draftRestored: 'Your saved draft is back',
     errors: {
+      phone: 'Keep the phone number within 40 characters',
       type: 'Choose the type of scam', channel: 'Choose how they contacted you', amount: 'Enter an amount in numbers, up to 2 decimal places',
       story: 'Write at least 10 characters', storyLong: 'Keep it under 5,000 characters', destination: 'Choose who should receive the report',
       consent: 'Choose whether they may contact you', email: 'Enter a valid email address', contact: 'Give an email or a phone number',
@@ -73,6 +75,7 @@ export const en: Resources = {
     uploadFailed: 'Report sent, but {{count}} evidence file(s) could not be attached',
   },
   submitted: {
+    notFound: 'This report is unavailable for your account. Open My reports to find your tickets.',
     title: 'We have your report', lead: 'Keep this number. Quote it when you contact them.', eta: 'Usually within 1 working day',
     notify: 'Follow it on My reports. You do not need to do anything else.', evidence_one: '{{count}} file attached', evidence_other: '{{count}} files attached',
     toReports: 'See my reports', toFeed: 'Check other verified scams',
@@ -116,7 +119,7 @@ export const en: Resources = {
     col: { ticket: 'Report no.', report: 'Report', channel: 'Channel', amount: 'Loss', waited: 'Waiting', received: 'Received', status: 'Status' },
     showing: 'Showing {{from}}–{{to}} of {{total}}',
     cappedNewest: 'This tab has {{total}} reports. The table shows the newest {{count}}.',
-    cappedOldest: 'This tab has {{total}} reports. The table shows the oldest {{count}}, in queue order.', prev: 'Previous', next: 'Next', empty: 'Nothing in this tab',
+    prev: 'Previous', next: 'Next', empty: 'Nothing in this tab',
     emptyFiltered: 'No reports match these filters', open: 'Open report {{ticket}}', nextForYou: 'Next for you', pagination: 'Pages',
   },
   detail: {

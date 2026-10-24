@@ -156,6 +156,10 @@ export function createApp(config: Config) {
         await requireCitizen();
         return {data:result(await db.from('reports').select(reportFields).eq('reporter_id',user.id).order('created_at',{ascending:false}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1))};
       },{query:t.Object(Pagination,{additionalProperties:false}),response:rows(Report),detail:{summary:'Citizen’s own reports, paginated'}})
+      .get('/reports/:id',async ({db,user,params,requireCitizen}) => {
+        await requireCitizen();
+        return {data:result(await db.from('reports').select(reportFields).eq('id',params.id).eq('reporter_id',user.id).maybeSingle())};
+      },{params:IdParams,response:one(Report),detail:{summary:'One citizen-owned report; foreign IDs are 404'}})
       .post('/reports/:id/withdraw',async ({db,user,params,requireCitizen}) => {
         await requireCitizen();
         const data = result(await db.from('reports').update({status:'withdrawn'}).eq('id',params.id).eq('reporter_id',user.id).select(reportFields));
@@ -170,10 +174,13 @@ export function createApp(config: Config) {
         const base = db.from('reports').select(reportFields).eq('organization_id',query.organization_id).neq('status','withdrawn');
         const tab = query.status;
         const filtered = tab === 'decided' ? base.in('status',['verified','rejected']) : tab ? base.eq('status',tab) : base;
-        // Waiting tabs are served oldest first so the head of the list is always who is next in line.
-        const oldestFirst = tab === 'pending' || tab === 'flagged';
-        return {data:result(await filtered.order('created_at',{ascending:oldestFirst}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1))};
-      },{query:QueueQuery,response:rows(Report),detail:{summary:'Organization-only report rows, optionally one tab (pending and flagged oldest first); executive denied'}})
+        return {data:result(await filtered.order('created_at',{ascending:false}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1))};
+      },{query:QueueQuery,response:rows(Report),detail:{summary:'Organization-only report rows, newest first, optionally one tab; executive denied'}})
+      .get('/moderation/next',async ({db,query,requireRole}) => {
+        await requireRole(query.organization_id,['moderator','org_admin'],'moderation.queue');
+        const reports = result(await db.from('reports').select(reportFields).eq('organization_id',query.organization_id).eq('status','pending').order('created_at').order('id').limit(1));
+        return {data:reports[0] ?? null};
+      },{query:TenantQuery,response:one(t.Nullable(Report)),detail:{summary:'Oldest pending report across the organization queue; executive denied'}})
       .get('/moderation/queue/counts',async ({db,query,requireRole}) => {
         await requireRole(query.organization_id,['moderator','org_admin'],'moderation.queue');
         const count = async (statuses: string[]) => {
@@ -196,9 +203,9 @@ export function createApp(config: Config) {
         await requireRole(report.organization_id,['moderator'],'moderation.decide');
         return {data:result(await db.from('reports').update({status:body.status}).eq('id',params.id).select(reportFields).single())};
       },{params:IdParams,body:ModerationInput,response:one(Report),detail:{summary:'Moderator verifies, rejects or flags a pending/flagged report; atomic audit/history'}})
-      .get('/reports/:id/contacts',async ({db,user,params,deny,requireRole}) => {
-        const report = result(await db.from('reports').select('organization_id,reporter_id,consent_contact').eq('id',params.id).maybeSingle());
-        const staff = report.reporter_id !== user.id;
+      .get('/reports/:id/contacts',async ({db,memberships,params,deny,requireRole}) => {
+        const report = result(await db.from('reports').select('organization_id,consent_contact').eq('id',params.id).maybeSingle());
+        const staff = memberships.length > 0;
         if (staff) {
           await requireRole(report.organization_id,['moderator','org_admin'],'contacts.read');
           if (!report.consent_contact) await deny(report.organization_id,'contacts.consent','The reporter did not consent to contact sharing.');
@@ -257,7 +264,9 @@ export function createApp(config: Config) {
         // Ticket labels for report rows still visible to this admin (withdrawn reports stay hidden); the label's year is the report's own.
         const tickets = result(await db.from('reports').select('id,ticket_no,created_at').in('id',[...new Set(entries.map(entry=>entry.resource_id))]));
         const ticketOf = new Map(tickets.map(row=>[row.id,row]));
-        return {data:entries.map(entry=>({...entry,ticket_no:ticketOf.get(entry.resource_id)?.ticket_no ?? null,report_created_at:ticketOf.get(entry.resource_id)?.created_at ?? null}))};
+        const updates = entries.filter(entry=>entry.action==='reports.update');
+        const decisions = updates.length ? result(await db.from('moderation_actions').select('report_id,actor_id,request_id,created_at').eq('organization_id',query.organization_id).in('report_id',updates.map(entry=>entry.resource_id)).in('request_id',updates.map(entry=>entry.request_id))) : [];
+        return {data:entries.map(entry=>({...entry,ticket_no:ticketOf.get(entry.resource_id)?.ticket_no ?? null,report_created_at:ticketOf.get(entry.resource_id)?.created_at ?? null,is_moderation:entry.action==='reports.update' && decisions.some(decision=>decision.report_id===entry.resource_id && decision.actor_id===entry.actor_id && decision.request_id===entry.request_id && decision.created_at===entry.created_at)}))};
       },{query:AuditFilter,response:rows(AuditEntry),detail:{summary:'Organization admin reads immutable tenant-scoped audit, including denied attempts; optional result filter'}})
       .get('/audit/counts',async ({db,query,requireRole}) => {
         await requireRole(query.organization_id,['org_admin'],'audit.read');

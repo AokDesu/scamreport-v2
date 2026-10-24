@@ -29,11 +29,13 @@ export const asScamType = (value: string): ScamType => (scamTypes as readonly st
 export const asChannel = (value: string): Channel => (channels as readonly string[]).includes(value) ? value as Channel : 'other';
 
 export type HeldRole = MemberRole | 'citizen';
-/** The most capable role the user holds; drives the console's landing page and the role chip. */
+export const rolePriority: MemberRole[] = ['moderator', 'org_admin', 'executive'];
+export function initialMembership(me: Me) {
+  return rolePriority.flatMap(role => me.memberships.filter(m => m.role === role))[0];
+}
 export function primaryRole(me: Me): HeldRole {
   if (me.role === 'citizen') return 'citizen';
-  const held = new Set(me.memberships.map(m => m.role));
-  return held.has('moderator') ? 'moderator' : held.has('org_admin') ? 'org_admin' : 'executive';
+  return initialMembership(me)!.role;
 }
 export function homePath(me: Me) {
   const role = primaryRole(me);

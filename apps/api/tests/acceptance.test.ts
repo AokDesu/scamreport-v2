@@ -191,24 +191,63 @@ describe('Permission',()=>{
     expect(audit.find(row=>row.request_id===consentId)?.action).toBe('denied.contacts.consent');
     expect(audit.find(row=>row.request_id===citizenRouteId)?.action).toBe('denied.reports.citizen');
   });
-  test('queue tabs and counts come from the server, waiting tabs oldest first',async()=>{
+  test('queue tables show newest reports while Call next selects oldest pending',async()=>{
     await create();await create();
     const pending = await data<Report[]>(await request(`/moderation/queue?organization_id=${A}&status=pending&limit=100`,'moderator-a'));
     expect(pending.length).toBeGreaterThan(1);
     expect(pending.every(row=>row.status==='pending')).toBe(true);
-    expect(pending.map(row=>row.created_at)).toEqual([...pending.map(row=>row.created_at)].sort());
-    const first = await data<Report[]>(await request(`/moderation/queue?organization_id=${A}&status=pending&limit=1`,'moderator-a'));
-    expect(first[0]?.id).toBe(pending[0]!.id);
+    expect(pending.map(row=>row.created_at)).toEqual([...pending.map(row=>row.created_at)].sort().reverse());
+    const first = await data<Report | null>(await request(`/moderation/next?organization_id=${A}`,'moderator-a'));
+    expect(first?.id).toBe([...pending].sort((a,b)=>a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0]!.id);
     const decided = await data<Report[]>(await request(`/moderation/queue?organization_id=${A}&status=decided&limit=100`,'admin-a'));
     expect(decided.every(row=>row.status==='verified' || row.status==='rejected')).toBe(true);
     expect(decided.map(row=>row.created_at)).toEqual([...decided.map(row=>row.created_at)].sort().reverse());
     const counts = await data<{pending:number;flagged:number;decided:number}>(await request(`/moderation/queue/counts?organization_id=${A}`,'moderator-a'));
     expect(counts.pending).toBe(pending.length);expect(counts.decided).toBe(decided.length);
     const flagged = await data<Report[]>(await request(`/moderation/queue?organization_id=${A}&status=flagged&limit=100`,'moderator-a'));
+    expect(flagged.map(row=>row.created_at)).toEqual([...flagged.map(row=>row.created_at)].sort().reverse());
     expect(counts.flagged).toBe(flagged.length);
     await error(await request(`/moderation/queue/counts?organization_id=${A}`,'executive-a'),403,'FORBIDDEN');
     await error(await request(`/moderation/queue/counts?organization_id=${B}`,'moderator-a'),403,'FORBIDDEN');
     await error(await request(`/moderation/queue?organization_id=${A}&status=withdrawn`,'moderator-a'),422,'VALIDATION_FAILED');
+  });
+  test('former citizen owners follow staff contact rules in Data API, RPC and HTTP',async()=>{
+    const yes = await create({consent_contact:true});
+    const no = await create();
+    const citizen = clients.get('citizen')!;
+    expect((await citizen.from('report_contacts').select('report_id').eq('report_id',yes.id)).data).toHaveLength(1);
+    try {
+      for (const role of ['moderator','org_admin','executive'] as const) {
+        await data(await request('/memberships','admin-a',{method:'PUT',body:JSON.stringify({organization_id:A,user_id:citizenId,role})}));
+        for (const report of [yes,no]) {
+          const direct = await citizen.from('report_contacts').select('*').eq('report_id',report.id);
+          expect(direct.error).toBeNull();expect(direct.data).toEqual([]);
+        }
+        const rpc = await citizen.rpc('read_report_contact',{report:yes.id});
+        expect(rpc.error).toBeNull();
+        expect(rpc.data).toHaveLength(role==='executive' ? 0 : 1);
+        if (role==='executive') {
+          await error(await request(`/reports/${yes.id}/contacts`),404,'NOT_FOUND');
+        } else {
+          const requestId = 'promoted-owner-'+role+'-'+crypto.randomUUID();
+          expect((await data<{email:string}>(await request(`/reports/${yes.id}/contacts`,'citizen',{headers:{'X-Request-Id':requestId}}))).email).toBe('contact@demo.example.test');
+          await error(await request(`/reports/${no.id}/contacts`),403,'FORBIDDEN');
+          const audit = await data<Array<{request_id:string;action:string;actor_id:string}>>(await request(`/audit?organization_id=${A}&limit=100`,'admin-a'));
+          expect(audit.find(row=>row.request_id===requestId)).toMatchObject({action:'report_contacts.view',actor_id:citizenId});
+        }
+      }
+    } finally {
+      await data(await request('/memberships','admin-a',{method:'DELETE',body:JSON.stringify({organization_id:A,user_id:citizenId})}));
+    }
+    expect((await citizen.from('report_contacts').select('report_id').eq('report_id',yes.id)).data).toHaveLength(1);
+    try {
+      await data(await request('/memberships','admin-b',{method:'PUT',body:JSON.stringify({organization_id:B,user_id:citizenId,role:'moderator'})}));
+      expect((await citizen.from('report_contacts').select('*').eq('report_id',yes.id)).data).toEqual([]);
+      expect((await citizen.rpc('read_report_contact',{report:yes.id})).data).toEqual([]);
+      await error(await request(`/reports/${yes.id}/contacts`),404,'NOT_FOUND');
+    } finally {
+      await data(await request('/memberships','admin-b',{method:'DELETE',body:JSON.stringify({organization_id:B,user_id:citizenId})}));
+    }
   });
   test('the audit filters denied entries on the server and labels tickets with the report’s own date',async()=>{
     const report = await create({consent_contact:true});
@@ -354,6 +393,27 @@ describe('Security',()=>{
   });
 });
 describe('Regression',()=>{
+  test('an owned ticket resolves by ID outside the newest list window; foreign IDs do not',async()=>{
+    const own = await data<Report>(await request('/reports/20000000-0000-4000-8000-000000000001'));
+    expect(own.id).toBe('20000000-0000-4000-8000-000000000001');
+    await error(await request(`/reports/${own.id}`,'citizen-two'),404,'NOT_FOUND');
+    await error(await request('/reports/ffffffff-ffff-4fff-8fff-ffffffffffff'),404,'NOT_FOUND');
+    await error(await request(`/reports/${own.id}`,'moderator-a'),403,'FORBIDDEN');
+  });
+  test('removed staff moderation stays identifiable after the report is withdrawn',async()=>{
+    const report = await create();
+    const requestId = 'removed-staff-'+crypto.randomUUID();
+    try {
+      await data(await request('/memberships','admin-a',{method:'PUT',body:JSON.stringify({organization_id:A,user_id:otherCitizenId,role:'moderator'})}));
+      await data(await request(`/moderation/${report.id}`,'citizen-three',{method:'POST',headers:{'X-Request-Id':requestId},body:JSON.stringify({status:'flagged'})}));
+    } finally {
+      await data(await request('/memberships','admin-a',{method:'DELETE',body:JSON.stringify({organization_id:A,user_id:otherCitizenId})}));
+    }
+    await data(await request(`/reports/${report.id}/withdraw`,'citizen',{method:'POST'}));
+    const audit = await data<Array<{request_id:string;action:string;resource_id:string;ticket_no:number|null;is_moderation:boolean}>>(await request(`/audit?organization_id=${A}&limit=100`,'admin-a'));
+    expect(audit.find(row=>row.request_id===requestId)).toMatchObject({is_moderation:true,ticket_no:null});
+    expect(audit.find(row=>row.resource_id===report.id && row.action==='reports.update' && row.request_id!==requestId)).toMatchObject({is_moderation:false,ticket_no:null});
+  });
   test('create → moderate → public feed → withdraw commits correlated immutable audit',async()=>{
     const requestId = 'moderation-'+crypto.randomUUID();
     const report = await create();
@@ -379,4 +439,41 @@ describe('Regression',()=>{
     expect(spec.paths['/me'].get.security).toEqual([{bearerAuth:[]}]);
     expect(spec.paths['/reports'].post.responses['422']).toBeDefined();
   });
+});
+
+describe('Queue window boundary',()=>{
+  test('each tab keeps the newest 100 beyond the cap while next remains independent',async()=>{
+    const fixtures: Report[] = [];
+    const oldest = await data<Report | null>(await request(`/moderation/next?organization_id=${A}`,'moderator-a'));
+    try {
+      for (let batch=0;batch<11;batch++) {
+        fixtures.push(...await Promise.all(Array.from({length:Math.min(10,105-fixtures.length)},()=>create())));
+      }
+      const newest = [...fixtures].sort((a,b)=>b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id)).slice(0,100).map(report=>report.id);
+      for (const status of ['pending','flagged','decided'] as const) {
+        if (status!=='pending') {
+          for (let at=0;at<fixtures.length;at+=10) {
+            await Promise.all(fixtures.slice(at,at+10).map(report=>request(`/moderation/${report.id}`,'moderator-a',{method:'POST',body:JSON.stringify({status:status==='flagged' ? 'flagged' : 'verified'})}).then(data)));
+          }
+        }
+        const table = await data<Report[]>(await request(`/moderation/queue?organization_id=${A}&status=${status}&limit=100`,'moderator-a'));
+        expect(table.map(report=>report.id)).toEqual(newest);
+        const counts = await data<{pending:number;flagged:number;decided:number}>(await request(`/moderation/queue/counts?organization_id=${A}`,'moderator-a'));
+        expect(counts[status]).toBeGreaterThanOrEqual(105);
+        if (status==='pending') {
+          const next = await data<Report | null>(await request(`/moderation/next?organization_id=${A}`,'moderator-a'));
+          expect(next?.id).toBe(oldest?.id ?? [...fixtures].sort((a,b)=>a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0]!.id);
+          expect(table.some(report=>report.id===next?.id)).toBe(false);
+          const own = await data<Report>(await request(`/reports/${fixtures[0]!.id}`));
+          expect(own.id).toBe(fixtures[0]!.id);
+        }
+      }
+      await error(await request(`/moderation/next?organization_id=${A}`,'executive-a'),403,'FORBIDDEN');
+      await error(await request(`/moderation/next?organization_id=${B}`,'moderator-a'),403,'FORBIDDEN');
+    } finally {
+      for (let at=0;at<fixtures.length;at+=10) {
+        await Promise.all(fixtures.slice(at,at+10).map(report=>request(`/reports/${report.id}/withdraw`,'citizen',{method:'POST'}).then(data)));
+      }
+    }
+  },120000);
 });

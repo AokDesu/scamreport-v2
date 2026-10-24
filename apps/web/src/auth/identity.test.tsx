@@ -1,8 +1,10 @@
 import { describe, expect, test, vi } from 'vitest';
-import { act, render, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Me } from '@scamreport/shared';
-import { IdentityProvider } from './identity';
+import { IdentityProvider, useIdentity } from './identity';
+import { drafts } from '@/lib/draft';
+import { supabase } from '@/lib/supabase';
 
 type Listener = (event: string, session: unknown) => void;
 const auth = vi.hoisted(() => ({ listener: undefined as undefined | ((event: string, session: unknown) => void) }));
@@ -14,18 +16,24 @@ vi.mock('@/lib/supabase', () => ({
     auth: {
       getSession: vi.fn(async () => ({ data: { session: session('user-1') }, error: null })),
       onAuthStateChange: vi.fn((listener: Listener) => { auth.listener = listener; return { data: { subscription: { unsubscribe() {} } } }; }),
+      signOut: vi.fn(async () => ({ error: null })),
     },
   },
 }));
 vi.mock('@/lib/api', () => ({ api: vi.fn(async () => ({ id: 'user-1', email: 'a@example.test', role: 'citizen', memberships: [] } satisfies Me)) }));
-vi.mock('@/lib/draft', () => ({ drafts: { remove: async () => {} } }));
+vi.mock('@/lib/draft', () => ({ drafts: { remove: vi.fn(async () => undefined) } }));
 vi.mock('@/lib/session', () => ({
   expireSession: vi.fn(), sessionEnd: { expected: false }, lastAccount: { set: () => {}, clear: () => {}, get: () => null },
 }));
 
+function SignOut() {
+  const { signOut } = useIdentity();
+  return <button onClick={() => void signOut()}>Leave</button>;
+}
+
 async function mount() {
   const client = new QueryClient();
-  render(<QueryClientProvider client={client}><IdentityProvider><p>child</p></IdentityProvider></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><IdentityProvider><SignOut /></IdentityProvider></QueryClientProvider>);
   await waitFor(() => expect(client.getQueryData(['me', 'user-1'])).toBeTruthy());
   client.setQueryData(['queue', 'tab'], ['kept?']);
   return client;
@@ -47,5 +55,13 @@ describe('identity cache', () => {
     const client = await mount();
     act(() => auth.listener!('SIGNED_OUT', null));
     expect(client.getQueryData(['queue', 'tab'])).toBeUndefined();
+  });
+  test('failed draft removal stops deliberate sign-out', async () => {
+    await mount();
+    vi.mocked(drafts.remove).mockRejectedValueOnce(new Error('storage unavailable'));
+    vi.mocked(supabase.auth.signOut).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Leave' }));
+    await waitFor(() => expect(drafts.remove).toHaveBeenCalledWith('user-1'));
+    expect(supabase.auth.signOut).not.toHaveBeenCalled();
   });
 });

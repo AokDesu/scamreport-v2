@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { channels, scamTypes, statuses, type ReportStatus } from '@/lib/domain';
 import { compactMoney, count, percent, shortDate } from '@/lib/format';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Content, DeniedPanel, isDenied, TopBar, useConsole } from './shell';
+import { Content, DeniedPanel, isDenied, ReadError, TopBar, useConsole } from './shell';
 
 // Status order and colours follow the approved dashboard: verified first, withdrawn neutral.
 const statusOrder: ReportStatus[] = ['verified', 'rejected', 'pending', 'withdrawn', 'flagged'];
@@ -89,7 +89,7 @@ export function DashboardPage() {
                 <dl className="flex gap-10 border-t pt-4">
                   {[
                     { label: t('dashboard.totalLoss'), value: compactMoney(loss, lng) },
-                    { label: t('dashboard.consentRate'), value: breakdown.isSuccess ? percent(consented / total, lng) : '…' },
+                    { label: t('dashboard.consentRate'), value: breakdown.isError ? t('errors.unavailable') : breakdown.isSuccess ? percent(consented / total, lng) : '…' },
                     { label: t('dashboard.verifiedRate'), value: decided ? `${percent(byStatus.verified / decided, lng)} ${t('dashboard.decided')}` : '—' },
                   ].map(figure => (
                     <div key={figure.label} className="flex flex-col">
@@ -101,7 +101,7 @@ export function DashboardPage() {
               </>}
             </Card>
             <Card title={t('dashboard.weekly')} titleId="weekly-title" aside={t('dashboard.weeklyHint')} className="col-span-7">
-              {breakdown.isPending ? <Skeleton className="h-64" /> : <>
+              {breakdown.isPending ? <Skeleton className="h-64" /> : breakdown.isError ? <ReadError error={breakdown.error} onRetry={() => void breakdown.refetch()} /> : <>
                 <div role="img" aria-label={`${t('dashboard.weekly')}: ${weeks.map(week => `${week.label} ${week.received}`).join(', ')}`} className="h-64 font-[Noto_Sans] text-xs">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={weeks} margin={{ top: 8, right: 12, bottom: 0, left: -16 }}>
@@ -123,7 +123,7 @@ export function DashboardPage() {
               </>}
             </Card>
             <Card title={t('dashboard.byType')} titleId="type-title" className="col-span-5">
-              {breakdown.isPending ? <Skeleton className="h-48" /> : (
+              {breakdown.isPending ? <Skeleton className="h-48" /> : breakdown.isError ? <ReadError error={breakdown.error} onRetry={() => void breakdown.refetch()} /> : (
                 <dl className="grid grid-cols-[10rem_1fr_3rem] items-center gap-x-3 gap-y-2 text-sm">
                   {types.map(row => (
                     <div key={row.type} className="contents">
@@ -135,7 +135,7 @@ export function DashboardPage() {
                 </dl>
               )}
               <h3 className="mt-2 text-lg" id="channel-title">{t('dashboard.byChannel')}</h3>
-              {channelTotal > 0 && <>
+              {breakdown.isPending ? <Skeleton className="h-16" /> : breakdown.isError ? <ReadError error={breakdown.error} onRetry={() => void breakdown.refetch()} /> : channelTotal > 0 && <>
                 <div aria-hidden="true" className="flex h-8 gap-0.75 overflow-hidden rounded-sm">
                   {channelRows.map(row => <div key={row.channel} style={{ flexGrow: row.value, background: row.color }} />)}
                 </div>

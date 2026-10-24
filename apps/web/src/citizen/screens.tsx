@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { Bell, Building2, CalendarDays, CircleCheck, Hourglass, LogOut, Paperclip, Plus, Search, SearchX, Undo2, UserCheck, UserX } from 'lucide-react';
 import type { FeedItem, Report, Tenant } from '@scamreport/shared';
 import i18next from 'i18next';
-import { api, failureMessageKey } from '@/lib/api';
+import { api, ApiFailure, failureMessageKey } from '@/lib/api';
 import { useIdentity } from '@/auth/identity';
 import { asChannel, asScamType, channelIcon, channels, scamTypes, type Channel, type ScamType } from '@/lib/domain';
 import { date, money, orgName, ticketLabel } from '@/lib/format';
@@ -54,17 +54,16 @@ export function matchFeedCodes(query: string, label: (key: string, language: str
 export function Feed() {
   const { t, i18n } = useTranslation();
   const [query, setQuery] = useState('');
-  const deferred = useDeferredValue(query.trim());
-  const codes = useMemo(() => matchFeedCodes(deferred, (key, lng) => i18n.getFixedT(lng)(key)), [deferred, i18n]);
+  const search = query.trim();
+  const codes = useMemo(() => matchFeedCodes(search, (key, lng) => i18n.getFixedT(lng)(key)), [search, i18n]);
   const feed = useQuery({
-    queryKey: ['feed', deferred ? codes : null],
+    queryKey: ['feed', search ? codes : null],
     queryFn: async () => {
-      if (!deferred) return api<FeedItem[]>('/feed?limit=50');
+      if (!search) return api<FeedItem[]>('/feed?limit=50');
       const pages = await Promise.all(codes.map(code => api<FeedItem[]>(`/feed?limit=50&search=${encodeURIComponent(code)}`)));
       const unique = new Map(pages.flat().map(item => [item.id, item]));
       return [...unique.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
     },
-    placeholderData: previous => previous,
   });
   const items = feed.data ?? [];
   return (
@@ -78,16 +77,16 @@ export function Feed() {
             className="h-15 rounded-lg border-transparent pl-13 shadow-md" />
         </search>
         <p aria-live="polite" className="px-1 text-[0.9375rem] text-muted-foreground">
-          {feed.isSuccess && items.length > 0 && t(deferred ? 'feed.results' : 'feed.latest', { count: items.length })}
+          {feed.isSuccess && items.length > 0 && t(search ? 'feed.results' : 'feed.latest', { count: items.length })}
         </p>
         {feed.isPending ? <ListSkeleton /> : feed.isError ? <LoadError error={feed.error} onRetry={() => void feed.refetch()} /> : items.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-xl bg-card px-6 py-8 text-center shadow-sm">
             <SearchX aria-hidden="true" className="size-10 text-muted-foreground" />
-            <h2 className="text-lg">{t(deferred ? 'feed.emptyTitle' : 'feed.noneYet')}</h2>
+            <h2 className="text-lg">{t(search ? 'feed.emptyTitle' : 'feed.noneYet')}</h2>
             <p className="text-base text-muted-foreground">{t('feed.emptyBody')}</p>
             <div className="flex flex-wrap justify-center gap-2">
               <Button asChild><Link to="/citizen/report"><Plus aria-hidden="true" />{t('feed.emptyAction')}</Link></Button>
-              {deferred && <Button variant="outline" onClick={() => setQuery('')}>{t('feed.clear')}</Button>}
+              {search && <Button variant="outline" onClick={() => setQuery('')}>{t('feed.clear')}</Button>}
             </div>
           </div>
         ) : (
@@ -185,7 +184,7 @@ export function MyReports() {
             <Button asChild size="lg"><Link to="/citizen/report"><Plus aria-hidden="true" />{t('reports.start')}</Link></Button>
           </div>
         ) : list.map(report => <ReportTicket key={report.id} report={report} onWithdraw={setWithdrawing} />)}
-        <Button variant="ghost" size="lg" className="mt-2 self-center" onClick={async () => { await signOut(); navigate('/sign-in', { replace: true }); }}>
+        <Button variant="ghost" size="lg" className="mt-2 self-center" onClick={async () => { if (await signOut()) navigate('/sign-in', { replace: true }); }}>
           <LogOut aria-hidden="true" />{t('nav.signOut')}
         </Button>
       </CitizenBody>
@@ -207,16 +206,18 @@ export function Submitted() {
   const { t, i18n } = useTranslation();
   const { id } = useParams();
   const state = useLocation().state as { report?: Report; attached?: number } | null;
+  const received = state?.report?.id === id ? state.report : undefined;
   const fetched = useQuery({
-    queryKey: ['reports'], queryFn: () => api<Report[]>('/reports?limit=100'), enabled: !state?.report,
+    queryKey: ['reports', id], queryFn: () => api<Report>(`/reports/${id}`), enabled: !received,
   });
-  const report = state?.report ?? fetched.data?.find(row => row.id === id);
+  const report = received ?? fetched.data;
+  const missing = fetched.error instanceof ApiFailure && fetched.error.status === 404;
   const tenantName = useTenantNames();
   return (
     <>
-      <CitizenHeader title={t('submitted.title')} subtitle={t('submitted.lead')} />
+      <CitizenHeader title={t(missing ? 'notFound.title' : 'submitted.title')} subtitle={t(missing ? 'submitted.notFound' : 'submitted.lead')} />
       <CitizenBody className="pb-10">
-        {!report ? (fetched.isError ? <LoadError error={fetched.error} onRetry={() => void fetched.refetch()} /> : <ListSkeleton />) : (
+        {!report ? (missing ? <p role="alert">{t('submitted.notFound')}</p> : fetched.isError ? <LoadError error={fetched.error} onRetry={() => void fetched.refetch()} /> : <ListSkeleton />) : (
           <div>
             <div aria-hidden="true" className="print-slot mx-1" />
             <div className="-mt-1.25 overflow-hidden px-1 pb-4.5">

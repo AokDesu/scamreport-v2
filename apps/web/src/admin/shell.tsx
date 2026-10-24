@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ChartColumn, ChevronRight, Inbox, Lock, LogOut, ScrollText, ShieldX, Users, type LucideIcon } from 'lucide-react';
 import type { Me, MemberRole, QueueCounts, QueueTab, Report, RosterMember, Tenant } from '@scamreport/shared';
-import { api, ApiFailure } from '@/lib/api';
+import { api, ApiFailure, failureMessageKey } from '@/lib/api';
 import { orgName, time } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Avatar, Brand, OrgMark } from '@/components/brand';
@@ -12,13 +12,13 @@ import { LanguageToggle } from '@/components/language-toggle';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useIdentity } from '@/auth/identity';
+import { initialMembership, rolePriority } from '@/lib/domain';
 
 export type ConsolePage = 'queue' | 'activity' | 'members' | 'dashboard' | 'detail';
 /** Which tenant roles may open each page. Mirrors the API checks; the API remains the authority. */
 export const pageRoles: Record<ConsolePage, MemberRole[]> = {
   queue: ['moderator', 'org_admin'], detail: ['moderator', 'org_admin'], activity: ['org_admin'], members: ['org_admin'], dashboard: ['executive'],
 };
-const rolePriority: MemberRole[] = ['moderator', 'org_admin', 'executive'];
 
 type Console = { me: Me; orgId: string; orgLabel: string; role: MemberRole; can: (page: ConsolePage) => boolean; home: string };
 const ConsoleContext = createContext<Console | null>(null);
@@ -29,11 +29,13 @@ export function useConsole() {
 }
 
 /** Staff names for the current organization (moderators and admins only; executives never call it). */
-export function useRoster() {
-  const { orgId, role } = useConsole();
+export function useRoster(organizationId?: string) {
+  const context = useConsole();
+  const orgId = organizationId ?? context.orgId;
+  const allowed = context.me.memberships.some(m => m.organization_id === orgId && (m.role === 'moderator' || m.role === 'org_admin'));
   return useQuery({
     queryKey: ['members', orgId], queryFn: () => api<RosterMember[]>(`/members?organization_id=${orgId}`),
-    enabled: role !== 'executive', staleTime: 60_000,
+    enabled: allowed, staleTime: 60_000,
   });
 }
 
@@ -47,7 +49,6 @@ export function useQueueCounts(enabled = true) {
   });
 }
 
-/** One queue tab, served by the database in queue order (waiting tabs oldest first). */
 export function useQueueTab(tab: QueueTab) {
   const { orgId } = useConsole();
   return useQuery({
@@ -58,7 +59,7 @@ export function useQueueTab(tab: QueueTab) {
 /** The oldest pending report: who "Call next" and "Save and call next" open. Always read fresh. */
 export const nextInLineQuery = (orgId: string) => ({
   queryKey: ['queue', 'next', orgId],
-  queryFn: async () => (await api<Report[]>(`/moderation/queue?organization_id=${orgId}&status=pending&limit=1`))[0] ?? null,
+  queryFn: () => api<Report | null>(`/moderation/next?organization_id=${orgId}`),
   staleTime: 0, retry: queueRetry,
 });
 export function useNextInLine(enabled = true) {
@@ -118,7 +119,7 @@ function Rail() {
           <span className="mt-0.5 inline-flex rounded-full bg-sidebar-primary px-2 font-heading text-[0.8125rem] leading-[1.6] font-semibold whitespace-nowrap text-sidebar-primary-foreground">{t(`role.${role}`)}</span>
         </div>
         <Button variant="ghost" size="icon-sm" aria-label={t('admin.signOut')} className="text-sidebar-muted hover:bg-sidebar-accent hover:text-white"
-          onClick={async () => { await signOut(); navigate('/sign-in', { replace: true }); }}>
+          onClick={async () => { if (await signOut()) navigate('/sign-in', { replace: true }); }}>
           <LogOut aria-hidden="true" />
         </Button>
       </div>
@@ -130,7 +131,8 @@ function Rail() {
 export function ConsoleLayout({ me }: { me: Me }) {
   const { i18n, t } = useTranslation();
   const orgIds = useMemo(() => [...new Set(me.memberships.map(m => m.organization_id))], [me]);
-  const [orgId, setOrgId] = useState(orgIds[0]!);
+  const [selectedOrg, setOrgId] = useState(() => initialMembership(me)!.organization_id);
+  const orgId = orgIds.includes(selectedOrg) ? selectedOrg : initialMembership(me)!.organization_id;
   const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), staleTime: 300_000 });
   const roles = me.memberships.filter(m => m.organization_id === orgId).map(m => m.role);
   const role = rolePriority.find(r => roles.includes(r))!;
@@ -196,6 +198,11 @@ export function ScopeChip({ children, icon: Icon }: { children: ReactNode; icon:
 
 export function Content({ children, className }: { children: ReactNode; className?: string }) {
   return <main id="main" className={cn('flex flex-col gap-5 px-8 pt-6 pb-10', className)}>{children}</main>;
+}
+
+export function ReadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const { t } = useTranslation();
+  return <div role="alert"><p>{t(failureMessageKey(error))}</p><Button variant="link" onClick={onRetry}>{t('app.retry')}</Button></div>;
 }
 
 /** In-place Unauthorized for a 403 from the API: role held, role needed, and the logged reference. */

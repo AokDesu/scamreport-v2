@@ -91,16 +91,18 @@ export function SessionExpired() {
   const { busy, failed, submit } = useSignIn();
   const [account] = useState(() => lastAccount.get());
   const email = account?.email ?? '';
-  const [hasDraft, setHasDraft] = useState(false);
+  const [hasDraft, setHasDraft] = useState<boolean>();
+  const [draftError, setDraftError] = useState(false);
   useEffect(() => {
-    if (account) void drafts.load(account.id).then(draft => setHasDraft(Boolean(draft)));
+    if (account) void drafts.load(account.id).then(draft => setHasDraft(Boolean(draft))).catch(() => setDraftError(true));
+    else setHasDraft(false);
   }, [account]);
   if (redirect) return <Navigate to={redirect} replace />;
   return (
     <GateLayout icon={Timer} title={t('expired.title')} lead={t('expired.lead')}>
       <div role="status" className="flex items-start gap-3 rounded-lg bg-card p-4 text-base leading-[1.6] shadow-xs">
         <CircleCheck aria-hidden="true" className="mt-0.5 size-5 flex-none text-primary" />
-        <p>{t(hasDraft ? 'expired.draftSaved' : 'expired.noDraft')}</p>
+        <p>{t(draftError ? 'errors.storage' : hasDraft === undefined ? 'app.loading' : hasDraft ? 'expired.draftSaved' : 'expired.noDraft')}</p>
       </div>
       <form className="flex flex-col gap-4.5" onSubmit={event => void submit(event, email)} aria-busy={busy}>
         {email && (
@@ -149,7 +151,7 @@ export function Unauthorized() {
       <Button size="lg" onClick={() => navigate(held === 'citizen' ? '/citizen/reports' : homePath(me), { replace: true })}>
         <Home aria-hidden="true" />{t(held === 'citizen' ? 'denied.toReports' : 'denied.toConsole')}
       </Button>
-      <Button size="lg" variant="outline" onClick={async () => { await signOut(); navigate('/sign-in', { replace: true }); }}>{t('denied.other')}</Button>
+      <Button size="lg" variant="outline" onClick={async () => { if (await signOut()) navigate('/sign-in', { replace: true }); }}>{t('denied.other')}</Button>
       {state.requestId && <p className="text-center font-[Noto_Sans] text-sm text-muted-foreground tabular-nums">{t('errors.reference', { id: state.requestId })}</p>}
     </GateLayout>
   );

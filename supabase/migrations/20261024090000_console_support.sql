@@ -38,7 +38,7 @@ returns void language sql security invoker set search_path = '' as $$ select pri
 -- staff get a contact solely through read_report_contact, which writes the report_contacts.view
 -- audit row first. If that write fails the function raises and returns nothing.
 drop policy contacts_read on public.report_contacts;
-create policy contacts_read on public.report_contacts for select to authenticated using (exists (
+create policy contacts_read on public.report_contacts for select to authenticated using ((select private.is_citizen()) and exists (
   select 1 from public.reports r where r.id = report_id and r.reporter_id = (select auth.uid())
 ));
 create function private.read_report_contact(report uuid)

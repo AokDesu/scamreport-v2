@@ -4,17 +4,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { ArrowLeft, Check, CircleCheck, CircleX, Eye, FileSearch, FileText, Flag, Send, UserCheck, UserX, type LucideIcon } from 'lucide-react';
-import type { Contact, ReportDetail, ReportStatus } from '@scamreport/shared';
+import type { Contact, ReportDetail, ReportStatus, Tenant } from '@scamreport/shared';
 import { api, failureMessageKey } from '@/lib/api';
 import { asChannel, asScamType, channelIcon } from '@/lib/domain';
-import { dateTime, money, ticketLabel } from '@/lib/format';
+import { dateTime, money, orgName, ticketLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { StatusBadge } from '@/components/status-badge';
 import { IdentifierChip, Ticket } from '@/components/ticket';
-import { Content, DeniedPanel, isDenied, isNotFound, nextInLineQuery, TopBar, useConsole, useRoster } from './shell';
+import { Content, DeniedPanel, isDenied, isNotFound, nextInLineQuery, ReadError, TopBar, useConsole, useRoster } from './shell';
 
 type Decision = Extract<ReportStatus, 'verified' | 'rejected' | 'flagged'>;
 const decisions: Array<{ value: Decision; label: string; icon: LucideIcon; tone: string }> = [
@@ -48,20 +48,19 @@ function EvidenceItem({ reportId, path, index }: { reportId: string; path: strin
   const label = t(pdf ? 'detail.pdfFile' : 'detail.evidenceAlt', { n: index + 1 });
   return (
     <figure className="m-0 flex flex-col gap-1.5">
-      <a href={url} target="_blank" rel="noreferrer" aria-label={t('detail.openFile', { name: label })}
+      {file.isError ? <ReadError error={file.error} onRetry={() => void file.refetch()} /> : <a href={url} target="_blank" rel="noreferrer" aria-label={t('detail.openFile', { name: label })}
         className="block h-46 w-36 overflow-hidden rounded-md bg-muted shadow-[inset_0_0_0_1px_var(--border)]">
         {!url ? <Skeleton className="size-full" />
           : pdf ? <span className="flex size-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground"><FileText aria-hidden="true" className="size-8" />PDF</span>
           : <img src={url} alt={label} className="size-full object-cover" />}
-      </a>
+      </a>}
       <figcaption className="text-[0.8125rem] text-muted-foreground">{label}</figcaption>
     </figure>
   );
 }
 
-function ContactPanel({ reportId, consent }: { reportId: string; consent: boolean }) {
+function ContactPanel({ reportId, consent, orgLabel }: { reportId: string; consent: boolean; orgLabel: string }) {
   const { t } = useTranslation();
-  const { orgLabel } = useConsole();
   const contact = useMutation({ mutationFn: () => api<Contact>(`/reports/${reportId}/contacts`) });
   return (
     <Panel title={t('detail.reporter')} titleId="reporter-title">
@@ -94,11 +93,20 @@ function ReportDetailView({ id }: { id: string }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { me, role, orgLabel } = useConsole();
+  const { me } = useConsole();
   const detail = useQuery({ queryKey: ['report', id], queryFn: () => api<ReportDetail>(`/moderation/${id}`) });
   const evidence = useQuery({ queryKey: ['evidence-list', id], queryFn: () => api<Array<{ path: string }>>(`/reports/${id}/evidence`), enabled: detail.isSuccess });
-  const roster = useRoster();
+  const roster = useRoster(detail.data?.report.organization_id ?? '');
+  const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), staleTime: 300_000 });
   const [decision, setDecision] = useState<Decision | ''>('');
+  const [nextError, setNextError] = useState<Error | null>(null);
+  async function callNext(orgId: string) {
+    setNextError(null);
+    try {
+      const following = await queryClient.fetchQuery(nextInLineQuery(orgId));
+      if (following && following.id !== id) navigate(`/admin/reports/${following.id}`);
+    } catch (error) { setNextError(error as Error); }
+  }
   const decide = useMutation({
     mutationFn: (status: Decision) => api(`/moderation/${id}`, { method: 'POST', body: JSON.stringify({ status }) }),
     onSuccess: async (_, status) => {
@@ -106,8 +114,7 @@ function ReportDetailView({ id }: { id: string }) {
       toast.success(t('detail.saved', { ticket: ticketLabel(report.ticket_no, report.created_at), status: t(`status.${status}`) }));
       await Promise.all([queryClient.invalidateQueries({ queryKey: ['report', id] }), queryClient.invalidateQueries({ queryKey: ['queue'] })]);
       setDecision('');
-      const following = await queryClient.fetchQuery(nextInLineQuery(report.organization_id)).catch(() => null);
-      if (following && following.id !== id) navigate(`/admin/reports/${following.id}`);
+      await callNext(report.organization_id);
     },
     onError: error => toast.error(t(failureMessageKey(error))),
   });
@@ -138,11 +145,12 @@ function ReportDetailView({ id }: { id: string }) {
   );
 
   const { report, history } = detail.data;
+  const orgLabel = orgName(tenants.data?.find(tenant => tenant.id === report.organization_id)?.name, i18n.language);
   const type = asScamType(report.scam_type);
   const channel = asChannel(report.channel);
   const ticket = ticketLabel(report.ticket_no, report.created_at);
   const open = report.status === 'pending' || report.status === 'flagged';
-  const canDecide = role === 'moderator';
+  const canDecide = me.memberships.some(m => m.organization_id === report.organization_id && m.role === 'moderator');
   const nameOf = (userId: string) => userId === me.id ? t('admin.you') : roster.data?.find(member => member.user_id === userId)?.display_name || t('detail.staff');
   const files = evidence.data ?? [];
 
@@ -171,14 +179,15 @@ function ReportDetailView({ id }: { id: string }) {
               <h3 id="ticket-story" className="mt-2 text-base">{t('detail.story')}</h3>
               <p className="max-w-[65ch] text-base leading-[1.7] whitespace-pre-line">{report.description}</p>
               <h3 className="mt-2 text-base">{t('detail.evidence')} {files.length > 0 && <small className="font-sans text-sm font-normal text-muted-foreground">{t('detail.evidenceCount', { count: files.length })}</small>}</h3>
-              {evidence.isPending ? <Skeleton className="h-46 w-36" /> : files.length === 0
+              {evidence.isPending ? <Skeleton className="h-46 w-36" /> : evidence.isError ? <ReadError error={evidence.error} onRetry={() => void evidence.refetch()} /> : files.length === 0
                 ? <p className="text-[0.9375rem] text-muted-foreground">{t('detail.noEvidence')}</p>
                 : <div className="flex flex-wrap gap-3.5">{files.map((file, index) => <EvidenceItem key={file.path} reportId={report.id} path={file.path} index={index} />)}</div>}
             </Ticket>
-            <ContactPanel reportId={report.id} consent={report.consent_contact} />
+            <ContactPanel reportId={report.id} consent={report.consent_contact} orgLabel={orgLabel} />
           </div>
           <div className="flex flex-col gap-5">
             <Panel title={t('detail.decide')} titleId="decide-title">
+              {nextError && <ReadError error={nextError} onRetry={() => void callNext(report.organization_id)} />}
               {!open ? <p className="text-[0.9375rem]">{t('detail.decidedAlready', { status: t(`status.${report.status}`) })}</p>
                 : !canDecide ? <p className="text-[0.9375rem] text-muted-foreground">{t('detail.adminReadOnly')}</p>
                 : <>
