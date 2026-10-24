@@ -8,8 +8,9 @@ import { ticketParts } from '@/lib/format';
 export function TicketNumber({ ticketNo, createdAt, size = 'lg', className }: { ticketNo: number; createdAt: string; size?: 'lg' | 'md' | 'sm'; className?: string }) {
   const { prefix, number } = ticketParts(ticketNo, createdAt);
   return (
-    <span aria-label={prefix + number} className={cn('inline-flex items-baseline gap-0.5 font-ticket leading-none font-bold tracking-[0.01em] tabular-nums',
+    <span className={cn('inline-flex items-baseline gap-0.5 font-ticket leading-none font-bold tracking-[0.01em] tabular-nums',
       size === 'lg' ? 'text-ticket' : size === 'md' ? 'text-[2.25rem]' : 'text-xl', className)}>
+      <span className="sr-only">{prefix + number}</span>
       <span aria-hidden="true" className={cn('mr-0.5 tracking-[0.04em] whitespace-nowrap opacity-75', size === 'sm' ? 'text-xs' : 'text-base')}>{prefix}</span>
       <span aria-hidden="true">{number}</span>
     </span>

@@ -3,6 +3,8 @@ import { render, screen, within } from '@testing-library/react';
 import i18n from '@/i18n';
 import { statuses } from '@/lib/domain';
 import { StatusBadge } from './status-badge';
+import { TicketNumber } from './ticket';
+import { ticketParts } from '@/lib/format';
 import { StepTrack } from './step-track';
 
 function track(status: Parameters<typeof StepTrack>[0]['status']) {
@@ -44,5 +46,14 @@ describe('status badge', () => {
   test('staff see the moderation word for flagged', () => {
     const { container } = render(<StatusBadge status="flagged" />);
     expect(container.textContent).toBe('ติดธง');
+  });
+});
+
+describe('ticket number', () => {
+  test('is exposed to assistive technology as one readable reference', () => {
+    const { prefix, number } = ticketParts(4812, '2026-10-24T07:00:00Z');
+    render(<TicketNumber ticketNo={4812} createdAt="2026-10-24T07:00:00Z" />);
+    expect(screen.getByText(prefix + number, { ignore: '[aria-hidden="true"]' }).className).toContain('sr-only');
+    expect(screen.getAllByText(/./).filter(node => node.getAttribute('aria-hidden') !== 'true' && node.textContent === prefix + number)).toHaveLength(1);
   });
 });
