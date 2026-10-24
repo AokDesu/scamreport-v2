@@ -137,17 +137,27 @@ Codes: `401 UNAUTHENTICATED`, `401 SESSION_EXPIRED`, `403 FORBIDDEN`, `404 NOT_F
 
 ## Tests and Gate F2 evidence
 
-With local Supabase running:
+One-time browser setup after the frozen dependency install (Chromium only; CI also installs its Linux dependencies):
+
+```sh
+bunx --no-install playwright install chromium
+```
+
+Run the complete seeded acceptance pack; no pre-existing app or Supabase stack is required:
 
 ```sh
 bun run test
 ```
 
-This **one command** runs `supabase test db`, `bun test apps/api/tests`, then the web component tests (`vitest` + Testing Library in jsdom, `bun run test:web`), writes real output/exit codes/timestamps to [docs/test-report.md](docs/test-report.md), and exits nonzero if any suite fails. No mock backend for the database and API suites. API tests launch a real ephemeral-port Elysia HTTP server against local Auth/Data API/Storage. They are grouped by ThaiWay’s six categories: **Auth/Session, Permission, Cross-Tenant Denial, API Error, Security, Regression**. Component tests cover the report form (validation in Thai, exact API body, no contact details without consent, 403 handling, English labels, device-draft checkpoints), status handling (step track, status words, accessible ticket number, 401/403/404/network handling in the API client), the device draft store, sign-out, and console boundaries (unavailable data is never shown as empty, organization switching, route-aware organization choice).
+This **one command** creates a uniquely named temporary Supabase project, runs `supabase test db`, `bun test apps/api/tests`, web component tests (`vitest` + Testing Library in jsdom, `bun run test:web`) and Playwright Chromium, writes real output/exit codes/timestamps plus per-category browser cases to [docs/test-report.md](docs/test-report.md), then stops only its own stack. It exits nonzero if setup, any suite or teardown fails. No mock backend for the database, API or browser suites; no hosted credentials. API tests launch a real ephemeral-port Elysia HTTP server against local Auth/Data API/Storage; browser tests launch the production web server and Elysia API and use the browser's stored caller JWT through the real same-origin proxy. API and browser suites cover ThaiWay's six categories: **Auth/Session, Permission, Cross-Tenant Denial, API Error, Security, Regression**. Component tests cover report validation and consent, device-draft checkpoints and storage, API errors, sign-out, accessible status/ticket output, and console organization/route boundaries.
 
 The expiry test signs a short-lived JWT with the local-only test signing secret obtained from `supabase status`, proves that Auth accepts it while live, waits for the separate Auth server’s clock, then proves `401 SESSION_EXPIRED` for the **same token**. No fake expiry branch or decoded-but-unverified token. Refresh-token rotation, existing-JWT permission revocation, direct Data API RLS denial, consent, private evidence, audit correlation and create→moderate→feed→withdraw are covered.
 
-Database tests roll back all changes, temporarily removing earlier API/demo-generated records to isolate the six seed cases. API tests leave only fictional withdrawn records/private test evidence as an audit trail; repeat runs are supported. To restore modified demo seed cases, use `supabase db reset --local` **only on this disposable local stack**; it destroys local demo changes. Never link or point these seed/tests at a hosted/real-data database.
+For just the browser suite, run `bun run test:e2e`. Fixtures sign in once per seeded role per worker without repeated UI login: citizen, moderators, organization admins and executives for both tenants. Browser cases prove foreign-tenant read/write denial with unchanged report state, aggregate-only executive access (including direct Data API denials), real `401 SESSION_EXPIRED` and request IDs, `403 FORBIDDEN`, and the Thai Session Expired/Unauthorized shells using accessible roles/names. Full product UI journeys, including draft-preserving reauthentication, follow after the separate screens change merges; phase 1 does not claim those screens are complete.
+
+Isolation: migrations, seed and pgTAP files are copied into a temporary project; every test CLI operation passes its explicit `--workdir`. Browser global setup resets **only that disposable database** after API tests. Ports default to 55320–55331 (web 55330, API 55331); set `E2E_PORT_BASE` to another free 12-port range for concurrent runs. `DOCKER_HOST` is inherited without changing any daemon. No Compose project is started or stopped, so the normal demo/UI stack is untouched. Do not link these tests to a hosted database.
+
+Chromium JUnit/category output and failure screenshots/traces go to a printed temporary directory; set `E2E_ARTIFACTS_DIR` to retain them at a chosen location outside the checkout. These artifacts can contain fictional local sessions and request data; CI retains them for seven days. Signing secrets and storage-state files are never committed or emitted into the report. Database tests roll back; API/browser mutations disappear when the owned test stack is removed.
 
 Other checks:
 
@@ -157,7 +167,7 @@ bun run build
 supabase db advisors --local --type security
 ```
 
-CI runs on every PR and main: frozen install, typecheck, local Supabase, database/API/web component tests with report artifact, web build, both Docker image builds. Only a successful main push publishes `ghcr.io/aokdesu/scamreport-v2-api` and `ghcr.io/aokdesu/scamreport-v2-web` (`latest` and commit-SHA tags). No deployment. The web image accepts public Supabase config **at runtime** through `/config.js`, so published images contain no baked-in keys; both containers run as the unprivileged `bun` user.
+CI runs on every PR and main: frozen install, typecheck, Chromium-only installation, isolated Supabase, database/API/web component/browser tests with the generated report and Chromium evidence artifacts, web build, both Docker image builds. Only a successful main push publishes `ghcr.io/aokdesu/scamreport-v2-api` and `ghcr.io/aokdesu/scamreport-v2-web` (`latest` and commit-SHA tags). No deployment. The web image accepts public Supabase config **at runtime** through `/config.js`, so published images contain no baked-in keys; both containers run as the unprivileged `bun` user.
 
 ## New developer handover
 

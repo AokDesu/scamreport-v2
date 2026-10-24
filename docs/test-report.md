@@ -2,7 +2,7 @@
 
 Generated: 2026-10-24T13:14:46.542Z
 
-Environment: bun 1.3.13; supabase 2.121.0; local Supabase, fictional seed, caller JWTs. No service-role client.
+Environment: bun 1.3.13; supabase 2.121.0; isolated local Supabase, fictional fresh seed, production web/API proxy, Chromium, caller JWTs. No service-role client.
 
 | Suite | Result | Exit code | Seconds |
 |---|---|---:|---:|
@@ -10,11 +10,11 @@ Environment: bun 1.3.13; supabase 2.121.0; local Supabase, fictional seed, calle
 | API / six acceptance categories | PASS | 0 | 9.49 |
 | Web / component tests (vitest + Testing Library) | PASS | 0 | 23.57 |
 
-API categories: Auth/Session, Permission, Cross-Tenant Denial, API Error, Security, Regression. The expiry test first uses an accepted locally signed JWT, then lets the real Auth server clock expire that same token. Database tests run inside a rolled-back transaction; API tests create fictional reports and withdraw them on cleanup.
+Acceptance categories: Auth/Session, Permission, Cross-Tenant Denial, API Error, Security, Regression. Database cases roll back. API tests use real Auth/Data API/Storage. Before Chromium runs, only this disposable database is reset to the fictional seed. Browser expiry uses a token accepted by Auth before the same token expires on the real server clock.
 
 ## Database / pgTAP
 
-Command: `supabase test db`
+Command: `supabase test db --local --workdir /tmp/scamreport-e2e-6GmRCp`
 
 ```text
 /home/symphony/.no-mistakes/worktrees/c33fc7c267d6/01M5PY4C9EZ2NMW2W9NHQDG1KS/.stack-link/supabase/tests/database/access.test.sql .. ok
@@ -60,6 +60,67 @@ RUN  v5.0.5 /home/symphony/.no-mistakes/worktrees/c33fc7c267d6/01M5PY4C9EZ2NMW2W
 
 $ vitest run
 ```
+
+## End-to-end / Chromium
+
+Command: `bun x --no-install playwright test`
+
+```text
+Running 15 tests using 1 worker
+
+  ✓   1 [chromium] › e2e/boundaries.spec.ts:19:5 › Auth/Session › citizen browser session has the seeded identity and tenant (923ms)
+  ✓   2 [chromium] › e2e/boundaries.spec.ts:19:5 › Auth/Session › moderator-a browser session has the seeded identity and tenant (662ms)
+  ✓   3 [chromium] › e2e/boundaries.spec.ts:19:5 › Auth/Session › admin-a browser session has the seeded identity and tenant (643ms)
+  ✓   4 [chromium] › e2e/boundaries.spec.ts:19:5 › Auth/Session › executive-a browser session has the seeded identity and tenant (633ms)
+  ✓   5 [chromium] › e2e/boundaries.spec.ts:19:5 › Auth/Session › moderator-b browser session has the seeded identity and tenant (655ms)
+  ✓   6 [chromium] › e2e/boundaries.spec.ts:19:5 › Auth/Session › admin-b browser session has the seeded identity and tenant (630ms)
+  ✓   7 [chromium] › e2e/boundaries.spec.ts:19:5 › Auth/Session › executive-b browser session has the seeded identity and tenant (640ms)
+  ✓   8 [chromium] › e2e/boundaries.spec.ts:31:3 › Auth/Session › the same live browser token expires at real Auth and renders Session Expired (5.9s)
+  ✓   9 [chromium] › e2e/boundaries.spec.ts:52:3 › Permission › citizen admin API is forbidden and admin workspace renders Unauthorized (839ms)
+  ✓  10 [chromium] › e2e/boundaries.spec.ts:63:3 › Cross-Tenant Denial › A moderator cannot read or mutate B report; B still sees the original state (1.5s)
+  ✓  11 [chromium] › e2e/boundaries.spec.ts:88:5 › Security › executive-a sees only own aggregates, never personal or raw case fields (999ms)
+  ✓  12 [chromium] › e2e/boundaries.spec.ts:88:5 › Security › executive-b sees only own aggregates, never personal or raw case fields (955ms)
+  ✓  13 [chromium] › e2e/boundaries.spec.ts:112:3 › Security › browser caller JWT cannot bypass cross-tenant denial through Data API (1.3s)
+  ✓  14 [chromium] › e2e/boundaries.spec.ts:127:3 › API Error › invalid browser-proxied input keeps the safe envelope and caller request ID (656ms)
+  ✓  15 [chromium] › e2e/boundaries.spec.ts:139:3 › Regression › browser sessions create with consent, verify, publish and withdraw through the real proxy (1.3s)
+
+  15 passed (1.0m)
+
+[WebServer] $ bun run --filter @scamreport/web build
+(node:251099) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+```
+
+## End-to-end acceptance categories (Chromium)
+
+Run: **passed**. Each case uses real seeded browser sessions and the production web/API proxy. Phase 1 covers boundaries and existing error shells; full product UI flows await the screens merge.
+
+| Acceptance category | Passed | Failed / not run | Result |
+|---|---:|---:|---|
+| Auth/Session | 8 | 0 | PASS |
+| Permission | 1 | 0 | PASS |
+| Cross-Tenant Denial | 1 | 0 | PASS |
+| API Error | 1 | 0 | PASS |
+| Security | 3 | 0 | PASS |
+| Regression | 1 | 0 | PASS |
+
+| Category | Case | Result |
+|---|---|---|
+| Auth/Session | citizen browser session has the seeded identity and tenant | PASS |
+| Auth/Session | moderator-a browser session has the seeded identity and tenant | PASS |
+| Auth/Session | admin-a browser session has the seeded identity and tenant | PASS |
+| Auth/Session | executive-a browser session has the seeded identity and tenant | PASS |
+| Auth/Session | moderator-b browser session has the seeded identity and tenant | PASS |
+| Auth/Session | admin-b browser session has the seeded identity and tenant | PASS |
+| Auth/Session | executive-b browser session has the seeded identity and tenant | PASS |
+| Auth/Session | the same live browser token expires at real Auth and renders Session Expired | PASS |
+| Permission | citizen admin API is forbidden and admin workspace renders Unauthorized | PASS |
+| Cross-Tenant Denial | A moderator cannot read or mutate B report; B still sees the original state | PASS |
+| Security | executive-a sees only own aggregates, never personal or raw case fields | PASS |
+| Security | executive-b sees only own aggregates, never personal or raw case fields | PASS |
+| Security | browser caller JWT cannot bypass cross-tenant denial through Data API | PASS |
+| API Error | invalid browser-proxied input keeps the safe envelope and caller request ID | PASS |
+| Regression | browser sessions create with consent, verify, publish and withdraw through the real proxy | PASS |
 
 ## Structured API cases (Bun JUnit output)
 
