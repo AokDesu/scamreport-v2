@@ -10,6 +10,7 @@
     "build": "bun run --filter @scamreport/web build",
     "test": "bun scripts/test.ts",
     "test:api": "bun test apps/api/tests",
+    "test:web": "bun run --cwd apps/web test",
     "local:up": "bun scripts/local-up.ts"
   },
   "devDependencies": {

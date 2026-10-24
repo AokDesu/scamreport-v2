@@ -2,9 +2,9 @@ import { Elysia, t } from 'elysia';
 import { openapi } from '@elysiajs/openapi';
 import { createClient } from '@supabase/supabase-js';
 import {
-  ApiError, Data, ErrorResponses, FeedItem, IdParams, Me, Membership, MembershipInput,
-  MembershipTarget, ModerationInput, Pagination, Report, ReportInput, TenantQuery, Uuid,
-  type ErrorCode, type MemberRole, type Membership as MembershipType,
+  ApiError, AuditCounts, AuditEntry, AuditFilter, BreakdownRow, Contact, Data, ErrorResponses, FeedItem, IdParams, Me, Membership, MembershipInput,
+  MembershipTarget, ModerationInput, Pagination, QueueCounts, QueueQuery, Report, ReportDetail, ReportInput, RosterMember, StatisticsRow, Tenant,
+  TenantQuery, Uuid, type ErrorCode, type MemberRole, type Membership as MembershipType,
 } from '@scamreport/shared';
 
 export interface Config { supabaseUrl: string; anonKey: string; webOrigin: string }
@@ -25,7 +25,7 @@ function result<T>(value: { data: T; error: { code?: string; message: string } |
   if (value.data === null) fail(404,'NOT_FOUND','Resource not found.');
   return value.data!;
 }
-const reportFields = 'id,reporter_id,organization_id,scam_type,channel,amount,description,status,consent_contact,created_at';
+const reportFields = 'id,ticket_no,reporter_id,organization_id,scam_type,channel,amount,description,status,consent_contact,created_at';
 const rows = <T extends Parameters<typeof t.Array>[0]>(schema: T) => ({200:Data(t.Array(schema)),...ErrorResponses});
 const one = <T extends Parameters<typeof t.Array>[0]>(schema: T) => ({200:Data(schema),...ErrorResponses});
 const roleActions = {
@@ -105,42 +105,63 @@ export function createApp(config: Config) {
           fail(401,'UNAUTHENTICATED','Invalid session. Sign in again.');
         }
         const memberships: MembershipType[] = result(await db.from('memberships').select('organization_id,user_id,role').eq('user_id',data.user.id));
-        const requireRole = (org: string, roles: MemberRole[]) => {
-          if (!memberships.some(m => m.organization_id === org && roles.includes(m.role))) fail(403,'FORBIDDEN','You do not have permission for this organization.');
+        // Denials are written to the organization activity log before the 403 leaves; a logging
+        // failure must never turn a denial into success, so it is ignored here.
+        const deny = async (org: string, action: string, message: string): Promise<never> => {
+          await db.rpc('record_denial',{target:org,denied_action:action});
+          fail(403,'FORBIDDEN',message);
         };
-        const requireCitizen = () => { if (memberships.length) fail(403,'FORBIDDEN','This action is for citizen accounts.'); };
-        return {db,user:data.user,memberships,requireRole,requireCitizen};
+        const requireRole = async (org: string, roles: MemberRole[], action: string) => {
+          if (!memberships.some(m => m.organization_id === org && roles.includes(m.role))) await deny(org,action,'You do not have permission for this organization.');
+        };
+        // For routes keyed by a row ID: a staff member without the role is told so (and logged);
+        // a foreign row stays a 404 so other tenants' resources are never revealed.
+        const requireAnyRole = async (roles: MemberRole[], action: string) => {
+          if (memberships.some(m => roles.includes(m.role))) return;
+          if (memberships[0]) await deny(memberships[0].organization_id,action,'Your role cannot open this resource.');
+          fail(403,'FORBIDDEN','Your role cannot open this resource.');
+        };
+        const requireCitizen = async () => { if (memberships[0]) await deny(memberships[0].organization_id,'reports.citizen','This action is for citizen accounts.'); };
+        return {db,user:data.user,memberships,deny,requireRole,requireAnyRole,requireCitizen};
       })
       .get('/me',({user,memberships}) => ({data:{id:user.id,email:user.email,role:memberships.length ? 'staff' : 'citizen',memberships}}),{response:one(Me),detail:{summary:'Current verified identity and database memberships'}})
-      .get('/tenants',async ({db}) => ({data:result(await db.from('organizations').select('id,name').order('name'))}),{response:rows(t.Object({id:Uuid,name:t.String()})),detail:{summary:'Available organizations; staff see only their memberships'}})
+      .get('/tenants',async ({db}) => ({data:result(await db.from('organizations').select('id,name').order('name'))}),{response:rows(Tenant),detail:{summary:'Available organizations; staff see only their memberships'}})
       .get('/memberships',async ({db,user,query,requireRole}) => {
-        if (query.organization_id) requireRole(query.organization_id,['org_admin']);
+        if (query.organization_id) await requireRole(query.organization_id,['org_admin'],'memberships.read');
         const request = db.from('memberships').select('organization_id,user_id,role');
         return {data:result(await (query.organization_id ? request.eq('organization_id',query.organization_id) : request.eq('user_id',user.id)))};
       },{query:t.Object({organization_id:t.Optional(Uuid)},{additionalProperties:false}),response:rows(Membership),detail:{summary:'Own memberships or admin roster for one tenant'}})
-      .put('/memberships',async ({db,user,body,requireRole}) => {
-        requireRole(body.organization_id,['org_admin']);
-        if (body.user_id === user.id) fail(403,'FORBIDDEN','You cannot change your own membership.');
+      .put('/memberships',async ({db,user,body,deny,requireRole}) => {
+        await requireRole(body.organization_id,['org_admin'],'memberships.write');
+        if (body.user_id === user.id) await deny(body.organization_id,'memberships.self','You cannot change your own membership.');
         return {data:result(await db.from('memberships').upsert(body,{onConflict:'organization_id,user_id'}).select('organization_id,user_id,role').single())};
       },{body:MembershipInput,response:one(Membership),detail:{summary:'Grant or change another user’s membership in your organization'}})
-      .delete('/memberships',async ({db,user,body,requireRole}) => {
-        requireRole(body.organization_id,['org_admin']);
-        if (body.user_id === user.id) fail(403,'FORBIDDEN','You cannot remove your own membership.');
+      .delete('/memberships',async ({db,user,body,deny,requireRole}) => {
+        await requireRole(body.organization_id,['org_admin'],'memberships.write');
+        if (body.user_id === user.id) await deny(body.organization_id,'memberships.self','You cannot remove your own membership.');
         const data = result(await db.from('memberships').delete().eq('organization_id',body.organization_id).eq('user_id',body.user_id).select('organization_id,user_id,role'));
         if (!data.length) fail(404,'NOT_FOUND','Membership not found.');
         return {data:data[0]};
       },{body:MembershipTarget,response:one(Membership),detail:{summary:'Remove another user’s membership in your organization'}})
+      .get('/members',async ({db,query,requireRole}) => {
+        await requireRole(query.organization_id,['moderator','org_admin'],'members.read');
+        return {data:result(await db.rpc('organization_roster',{org:query.organization_id}))};
+      },{query:TenantQuery,response:rows(RosterMember),detail:{summary:'Staff names for the organization; sign-in emails only for organization admins'}})
       .get('/roles',() => ({data:roleActions}),{response:one(t.Object(Object.fromEntries(Object.keys(roleActions).map(key=>[key,t.Array(t.String())])))),detail:{summary:'Role capability catalog; tenant grants come only from memberships'}})
       .post('/reports',async ({db,body,requireCitizen}) => {
-        requireCitizen();
+        await requireCitizen();
         return {data:result(await db.rpc('create_report',{...body,contact_email:body.contact_email ?? null,contact_phone:body.contact_phone ?? null}))};
       },{body:ReportInput,response:one(Report),detail:{summary:'Create own report with optional private contact snapshot (atomic)'}})
       .get('/reports',async ({db,user,query,requireCitizen}) => {
-        requireCitizen();
+        await requireCitizen();
         return {data:result(await db.from('reports').select(reportFields).eq('reporter_id',user.id).order('created_at',{ascending:false}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1))};
       },{query:t.Object(Pagination,{additionalProperties:false}),response:rows(Report),detail:{summary:'Citizen’s own reports, paginated'}})
+      .get('/reports/:id',async ({db,user,params,requireCitizen}) => {
+        await requireCitizen();
+        return {data:result(await db.from('reports').select(reportFields).eq('id',params.id).eq('reporter_id',user.id).maybeSingle())};
+      },{params:IdParams,response:one(Report),detail:{summary:'One citizen-owned report; foreign IDs are 404'}})
       .post('/reports/:id/withdraw',async ({db,user,params,requireCitizen}) => {
-        requireCitizen();
+        await requireCitizen();
         const data = result(await db.from('reports').update({status:'withdrawn'}).eq('id',params.id).eq('reporter_id',user.id).select(reportFields));
         if (!data.length) fail(404,'NOT_FOUND','Report not found.');
         return {data:data[0]};
@@ -149,24 +170,54 @@ export function createApp(config: Config) {
         query:t.Object({...Pagination,search:t.Optional(t.String({maxLength:80}))},{additionalProperties:false}),response:rows(FeedItem),detail:{summary:'Verified public projection, searched by scam type or channel; no identities or free text'},
       })
       .get('/moderation/queue',async ({db,query,requireRole}) => {
-        requireRole(query.organization_id,['moderator','org_admin']);
-        return {data:result(await db.from('reports').select(reportFields).eq('organization_id',query.organization_id).neq('status','withdrawn').order('created_at',{ascending:false}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1))};
-      },{query:t.Object({organization_id:Uuid,...Pagination},{additionalProperties:false}),response:rows(Report),detail:{summary:'Organization-only report rows; executive denied'}})
+        await requireRole(query.organization_id,['moderator','org_admin'],'moderation.queue');
+        const base = db.from('reports').select(reportFields).eq('organization_id',query.organization_id).neq('status','withdrawn');
+        const tab = query.status;
+        const filtered = tab === 'decided' ? base.in('status',['verified','rejected']) : tab ? base.eq('status',tab) : base;
+        return {data:result(await filtered.order('created_at',{ascending:false}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1))};
+      },{query:QueueQuery,response:rows(Report),detail:{summary:'Organization-only report rows, newest first, optionally one tab; executive denied'}})
+      .get('/moderation/next',async ({db,query,requireRole}) => {
+        await requireRole(query.organization_id,['moderator','org_admin'],'moderation.queue');
+        const reports = result(await db.from('reports').select(reportFields).eq('organization_id',query.organization_id).eq('status','pending').order('created_at').order('id').limit(1));
+        return {data:reports[0] ?? null};
+      },{query:TenantQuery,response:one(t.Nullable(Report)),detail:{summary:'Oldest pending report across the organization queue; executive denied'}})
+      .get('/moderation/queue/counts',async ({db,query,requireRole}) => {
+        await requireRole(query.organization_id,['moderator','org_admin'],'moderation.queue');
+        const count = async (statuses: string[]) => {
+          const {count,error} = await db.from('reports').select('id',{count:'exact',head:true}).eq('organization_id',query.organization_id).in('status',statuses);
+          if (error || count === null) fail(500,'INTERNAL_ERROR','The request could not be completed.');
+          return count;
+        };
+        const [pending,flagged,decided] = await Promise.all([count(['pending']),count(['flagged']),count(['verified','rejected'])]);
+        return {data:{pending,flagged,decided}};
+      },{query:TenantQuery,response:one(QueueCounts),detail:{summary:'Per-tab report totals for the organization queue; executive denied'}})
+      .get('/moderation/:id',async ({db,params,requireAnyRole,requireRole}) => {
+        await requireAnyRole(['moderator','org_admin'],'moderation.report');
+        const report = result(await db.from('reports').select(reportFields).eq('id',params.id).maybeSingle());
+        await requireRole(report.organization_id,['moderator','org_admin'],'moderation.report');
+        const history = result(await db.from('moderation_actions').select('actor_id,from_status,to_status,request_id,created_at').eq('report_id',params.id).order('created_at'));
+        return {data:{report,history}};
+      },{params:IdParams,response:one(ReportDetail),detail:{summary:'One report of your organization with its decision history; foreign IDs are 404'}})
       .post('/moderation/:id',async ({db,params,body,requireRole}) => {
         const report = result(await db.from('reports').select('organization_id').eq('id',params.id).maybeSingle());
-        requireRole(report.organization_id,['moderator']);
+        await requireRole(report.organization_id,['moderator'],'moderation.decide');
         return {data:result(await db.from('reports').update({status:body.status}).eq('id',params.id).select(reportFields).single())};
       },{params:IdParams,body:ModerationInput,response:one(Report),detail:{summary:'Moderator verifies, rejects or flags a pending/flagged report; atomic audit/history'}})
-      .get('/reports/:id/contacts',async ({db,user,params,requireRole}) => {
-        const report = result(await db.from('reports').select('organization_id,reporter_id,consent_contact').eq('id',params.id).maybeSingle());
-        if (report.reporter_id !== user.id) {
-          requireRole(report.organization_id,['moderator','org_admin']);
-          if (!report.consent_contact) fail(403,'FORBIDDEN','The reporter did not consent to contact sharing.');
+      .get('/reports/:id/contacts',async ({db,memberships,params,deny,requireRole}) => {
+        const report = result(await db.from('reports').select('organization_id,consent_contact').eq('id',params.id).maybeSingle());
+        const staff = memberships.length > 0;
+        if (staff) {
+          await requireRole(report.organization_id,['moderator','org_admin'],'contacts.read');
+          if (!report.consent_contact) await deny(report.organization_id,'contacts.consent','The reporter did not consent to contact sharing.');
+          // Staff cannot select the table: the definer function audits the view first and returns nothing if that write fails.
+          const [contact] = result(await db.rpc('read_report_contact',{report:params.id}));
+          if (!contact) fail(404,'NOT_FOUND','Resource not found.');
+          return {data:contact};
         }
         return {data:result(await db.from('report_contacts').select('report_id,email,phone').eq('report_id',params.id).maybeSingle())};
-      },{params:IdParams,response:one(t.Object({report_id:Uuid,email:t.Nullable(t.String()),phone:t.Nullable(t.String())})),detail:{summary:'Private contact snapshot; assigned organization requires explicit consent'}})
+      },{params:IdParams,response:one(Contact),detail:{summary:'Private contact snapshot; assigned organization requires explicit consent; staff views are audited'}})
       .post('/reports/:id/evidence',async ({db,user,params,body,requireCitizen}) => {
-        requireCitizen();
+        await requireCitizen();
         const report = result(await db.from('reports').select('reporter_id,status').eq('id',params.id).maybeSingle());
         if (report.reporter_id !== user.id) fail(403,'FORBIDDEN','Only the reporter can upload evidence.');
         if (report.status !== 'pending') fail(422,'VALIDATION_FAILED','Evidence requires a pending report.');
@@ -183,14 +234,14 @@ export function createApp(config: Config) {
       },{params:IdParams,body:t.Object({file:t.File({type:['image/png','image/jpeg','application/pdf'],minSize:1,maxSize:5*1024*1024})},{additionalProperties:false}),response:one(t.Object({path:t.String()})),detail:{summary:'Upload immutable private evidence, max 5 MiB; PNG, JPEG or PDF'}})
       .get('/reports/:id/evidence',async ({db,user,params,requireRole}) => {
         const report = result(await db.from('reports').select('organization_id,reporter_id').eq('id',params.id).maybeSingle());
-        if (report.reporter_id !== user.id) requireRole(report.organization_id,['moderator','org_admin']);
+        if (report.reporter_id !== user.id) await requireRole(report.organization_id,['moderator','org_admin'],'evidence.read');
         const listed = await db.storage.from('evidence').list(params.id,{limit:100,sortBy:{column:'name',order:'asc'}});
         if (listed.error) fail(500,'INTERNAL_ERROR','Evidence could not be listed.');
         return {data:(listed.data ?? []).map(file=>({path:`${params.id}/${file.name}`}))};
       },{params:IdParams,response:rows(t.Object({path:t.String()})),detail:{summary:'List private evidence paths for a visible report'}})
       .get('/reports/:id/evidence/:filename',async ({db,user,params,requireRole,set}) => {
         const report = result(await db.from('reports').select('organization_id,reporter_id').eq('id',params.id).maybeSingle());
-        if (report.reporter_id !== user.id) requireRole(report.organization_id,['moderator','org_admin']);
+        if (report.reporter_id !== user.id) await requireRole(report.organization_id,['moderator','org_admin'],'evidence.read');
         const downloaded = await db.storage.from('evidence').download(`${params.id}/${params.filename}`);
         if (downloaded.error || !downloaded.data) fail(404,'NOT_FOUND','Evidence not found.');
         set.headers['content-disposition'] = `attachment; filename="${params.filename}"`;
@@ -198,12 +249,35 @@ export function createApp(config: Config) {
         return new Response(downloaded.data);
       },{params:t.Object({id:Uuid,filename:t.String({pattern:'^[a-f0-9-]{36}\\.(pdf|png|jpg)$'})},{additionalProperties:false}),detail:{summary:'Download evidence with authorization on every read, never a public URL'},response:{200:t.File(),...ErrorResponses}})
       .get('/statistics',async ({db,query,requireRole}) => {
-        requireRole(query.organization_id,['executive']);
+        await requireRole(query.organization_id,['executive'],'statistics.read');
         return {data:result(await db.rpc('executive_statistics',{org:query.organization_id}))};
-      },{query:TenantQuery,response:rows(t.Object({status:t.String(),report_count:t.Number(),total_amount:t.Number()})),detail:{summary:'Executive-only aggregate counts/amounts for own organization'}})
+      },{query:TenantQuery,response:rows(StatisticsRow),detail:{summary:'Executive-only aggregate counts/amounts for own organization'}})
+      .get('/statistics/breakdown',async ({db,query,requireRole}) => {
+        await requireRole(query.organization_id,['executive'],'statistics.read');
+        return {data:result(await db.rpc('executive_breakdown',{org:query.organization_id}))};
+      },{query:TenantQuery,response:rows(BreakdownRow),detail:{summary:'Executive-only counts by scam type, channel, consent and week; no rows or identities'}})
       .get('/audit',async ({db,query,requireRole}) => {
-        requireRole(query.organization_id,['org_admin']);
-        return {data:result(await db.from('audit_log').select('id,organization_id,actor_id,action,resource_id,request_id,created_at').eq('organization_id',query.organization_id).order('created_at',{ascending:false}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1))};
-      },{query:t.Object({organization_id:Uuid,...Pagination},{additionalProperties:false}),response:rows(t.Object({id:Uuid,organization_id:Uuid,actor_id:t.Nullable(Uuid),action:t.String(),resource_id:Uuid,request_id:t.String(),created_at:t.String()})),detail:{summary:'Organization admin reads immutable tenant-scoped mutation audit'}})
+        await requireRole(query.organization_id,['org_admin'],'audit.read');
+        const base = db.from('audit_log').select('id,organization_id,actor_id,action,resource_id,request_id,created_at').eq('organization_id',query.organization_id);
+        const filtered = query.result === 'denied' ? base.like('action','denied.%') : query.result === 'success' ? base.not('action','like','denied.%') : base;
+        const entries = result(await filtered.order('created_at',{ascending:false}).order('id').range(query.offset ?? 0,(query.offset ?? 0)+(query.limit ?? 20)-1));
+        // Ticket labels for report rows still visible to this admin (withdrawn reports stay hidden); the label's year is the report's own.
+        const tickets = result(await db.from('reports').select('id,ticket_no,created_at').in('id',[...new Set(entries.map(entry=>entry.resource_id))]));
+        const ticketOf = new Map(tickets.map(row=>[row.id,row]));
+        const updates = entries.filter(entry=>entry.action==='reports.update');
+        const decisions = updates.length ? result(await db.from('moderation_actions').select('report_id,actor_id,request_id,created_at').eq('organization_id',query.organization_id).in('report_id',[...new Set(updates.map(entry=>entry.resource_id))])) : [];
+        return {data:entries.map(entry=>({...entry,ticket_no:ticketOf.get(entry.resource_id)?.ticket_no ?? null,report_created_at:ticketOf.get(entry.resource_id)?.created_at ?? null,is_moderation:entry.action==='reports.update' && decisions.some(decision=>decision.report_id===entry.resource_id && decision.actor_id===entry.actor_id && decision.request_id===entry.request_id && decision.created_at===entry.created_at)}))};
+      },{query:AuditFilter,response:rows(AuditEntry),detail:{summary:'Organization admin reads immutable tenant-scoped audit, including denied attempts; optional result filter'}})
+      .get('/audit/counts',async ({db,query,requireRole}) => {
+        await requireRole(query.organization_id,['org_admin'],'audit.read');
+        const count = async (denied?: boolean) => {
+          const base = db.from('audit_log').select('id',{count:'exact',head:true}).eq('organization_id',query.organization_id);
+          const {count,error} = await (denied ? base.like('action','denied.%') : base);
+          if (error || count === null) fail(500,'INTERNAL_ERROR','The request could not be completed.');
+          return count;
+        };
+        const [total,denied] = await Promise.all([count(),count(true)]);
+        return {data:{total,denied}};
+      },{query:TenantQuery,response:one(AuditCounts),detail:{summary:'Total and denied entries in the organization audit'}})
     );
 }

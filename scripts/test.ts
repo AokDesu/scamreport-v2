@@ -5,7 +5,11 @@ import { localEnvironment } from './local-env';
 const env = {...process.env,...localEnvironment(),NO_COLOR:'1',FORCE_COLOR:'0'};
 const scratch = await mkdtemp(join(tmpdir(),'scamreport-tests-'));
 const junitPath = join(scratch,'api.xml');
-const commands = [ ['Database / pgTAP',['supabase','test','db']], ['API / six acceptance categories',['bun','test','apps/api/tests','--reporter=junit','--reporter-outfile='+junitPath]] ] as const;
+const commands = [
+  ['Database / pgTAP',['supabase','test','db']],
+  ['API / six acceptance categories',['bun','test','apps/api/tests','--reporter=junit','--reporter-outfile='+junitPath]],
+  ['Web / component tests (vitest + Testing Library)',['bun','run','--cwd','apps/web','test']],
+] as const;
 const results = [];
 for (const [name,command] of commands) {
   const started=Date.now();

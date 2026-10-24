@@ -27,7 +27,7 @@ jobs:
       - run: bun run typecheck
       - name: Start local Supabase (no hosted credentials)
         run: supabase start --exclude studio,postgres-meta,realtime,imgproxy,edge-runtime,logflare,vector,supavisor
-      - name: Database and API acceptance; generate real report
+      - name: Database, API and web component tests; generate real report
         id: tests
         run: |
           rm -f docs/test-report.md

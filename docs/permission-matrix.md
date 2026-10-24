@@ -18,11 +18,13 @@ Organizations are partner tenants. Roles are stored in `memberships`, not editab
 | Read / list / download evidence | Deny | Own | Own tenant, not withdrawn | Own tenant, not withdrawn | **Deny** |
 | Replace / delete evidence | Deny | Deny | Deny | Deny | Deny |
 | Read moderation history (Data API) | Deny | Deny | Own tenant | Own tenant | **Deny** |
+| Open one report with its history (`GET /moderation/:id`) | Deny | Deny (403) | Own tenant, not withdrawn | Own tenant, not withdrawn | **Deny (403, logged)** |
 | List tenant membership roster | Deny | Deny | Deny (own membership only) | Own tenant | Deny (own membership only) |
+| Staff names (`GET /members`) | Deny | Deny | Own tenant, names only | Own tenant, names and sign-in emails | **Deny** |
 | Grant / change / remove another membership | Deny | Deny | Deny | Own tenant; moderator, org_admin or executive | Deny |
 | Change or delete **own** membership | Deny | Deny | Deny | **Deny** | Deny |
-| Read executive aggregates | Deny | Deny | Deny | Deny | Own tenant only |
-| Read audit log | Deny | Deny | Deny | Own tenant only | **Deny** |
+| Read executive aggregates and breakdowns (status, type, channel, consent, week counts) | Deny | Deny | Deny | Deny | Own tenant only |
+| Read audit log, including denied attempts and contact views | Deny | Deny | Deny | Own tenant only | **Deny** |
 | Forge / update / delete audit or moderation history | Deny | Deny | Deny | Deny | Deny |
 | Read / write another tenant’s protected data | Deny | Deny | Deny | Deny | Deny |
 | Change report owner, assignment, consent or contents after filing | Deny | Deny | Deny | Deny | Deny |
@@ -39,7 +41,7 @@ Organizations are partner tenants. Roles are stored in `memberships`, not editab
 
 ## Executive split and public feed
 
-Executives receive `status`, `report_count` and `total_amount` from an explicitly authorized aggregate function. They cannot select report rows, report contacts, another citizen’s profile, evidence, moderation history or audit identities. They cannot acquire report access by inserting a citizen report. There is no commercial-data endpoint or table in this reporting domain; raw case data and reporter information are the restricted equivalent.
+Executives receive `status`, `report_count` and `total_amount` from an explicitly authorized aggregate function, and report counts by scam type, channel, consent and week from a second one (`executive_breakdown`). Neither returns a row, identity, description or per-case amount. They cannot select report rows, report contacts, another citizen’s profile, evidence, moderation history, staff names or audit identities. They cannot acquire report access by inserting a citizen report. There is no commercial-data endpoint or table in this reporting domain; raw case data and reporter information are the restricted equivalent.
 
 The requirement also allows **every signed-in account** to read the verified public feed. This is a separate deliberate projection of `id`, `scam_type`, `channel`, `amount` and `created_at`; it contains no reporter IDs, contact fields, organization identifiers or free-text description. Free text is excluded because a reporter may put personal information into it. Search covers scam type and channel, not private descriptions. No default-definer view exposes the underlying rows.
 
@@ -47,10 +49,15 @@ The two projection functions use private security-definer implementations with e
 
 ## Consent, state and evidence
 
-Contact details are stored in a separate immutable per-report snapshot. Organization access requires the report to be visible, the caller to be a moderator/admin of its assigned organization, and `consent_contact=true`. A reporter’s own profile is never a back door to the snapshot. Withdrawing a report removes it from tenant queues, tenant contacts/evidence access and the public projection, while retaining the owner’s record and the audit trail.
+Contact details are stored in a separate immutable per-report snapshot. Organization access requires the report to be visible, the caller to be a moderator/admin of its assigned organization, and `consent_contact=true`. Staff have no direct `SELECT` on the snapshot table (its policy serves only citizen reporters, including after staff memberships are removed); they receive it solely from `read_report_contact`, so the Data API cannot be used to skip the audit. A reporter’s own profile is never a back door to the snapshot. Withdrawing a report removes it from tenant queues, tenant contacts/evidence access and the public projection, while retaining the owner’s record and the audit trail.
 
 Only pending/flagged reports may be moderated. Verified and rejected decisions cannot be silently overwritten; the citizen can still withdraw. Repeating the same status is invalid. Evidence uses an immutable private bucket, 5 MiB maximum, PNG/JPEG/PDF content validation, randomized filenames and report-scoped RLS. Downloads are attachments, authorized on every request, not long-lived public or signed URLs. Private evidence may itself contain personal information; executives and the public cannot access it.
 
-Database triggers write audit/history in the same transaction as report and membership mutations. Clients have no audit/history write grants. The request ID comes from the Data API request headers; direct Data API mutations without one receive a generated UUID. Request IDs are correlation labels, not trusted authorization assertions. API request logs include successful and denied reads/writes; the database audit log records durable mutations, not every read.
+Database triggers write audit/history in the same transaction as report and membership mutations. Clients have no audit/history write grants. The request ID comes from the Data API request headers; direct Data API mutations without one receive a generated UUID. Request IDs are correlation labels, not trusted authorization assertions. API request logs include successful and denied reads/writes; the database audit log records durable mutations plus two read-side events the console shows:
+
+- **Denied attempts.** When the API refuses a staff member with `403` from a role, consent or citizen-only check, it calls `record_denial` with the caller's JWT before replying. The definer function writes `denied.<action>` only for the caller's own `auth.uid()`, and only into organizations the caller belongs to: the target organization when the caller is its member, otherwise the caller's own organizations (a cross-tenant attempt). Citizens have no organization, so they can never write into a tenant log. A member could call the function directly to log a denial against themself; that is self-reported noise, not a privilege.
+- **Contact views.** Staff cannot select `report_contacts`. Each staff read of a consented contact snapshot, including a report they filed before becoming staff, goes through `read_report_contact`, a definer function that returns nothing unless the caller could legitimately read that contact, writes `report_contacts.view` first and raises if that write fails, so no contact is returned without its audit row. This holds for the API and for direct Data API calls alike.
+
+Reports carry a server-assigned `ticket_no` (identity column, not writable by any client) shown as `SR-<Buddhist-era year>-<number>`. It is a human reference, never an authorization key.
 
 Proof: `supabase/tests/database/access.test.sql` and `apps/api/tests/acceptance.test.ts`; real execution output is regenerated by `bun run test` into [test-report.md](test-report.md).
