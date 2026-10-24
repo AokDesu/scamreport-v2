@@ -101,7 +101,7 @@ export function SessionExpired() {
   return (
     <GateLayout icon={Timer} title={t('expired.title')} lead={t('expired.lead')}>
       {draftError ? (
-        <p role="alert" className="rounded-md bg-danger-soft px-4 py-3 text-base text-danger-soft-foreground">{t('errors.draftUnavailable')}</p>
+        <p role="alert" className="rounded-md bg-danger-soft px-4 py-3 text-base text-danger-soft-foreground">{t('expired.draftUnchecked')}</p>
       ) : (
         <div role="status" className="flex items-start gap-3 rounded-lg bg-card p-4 text-base leading-[1.6] shadow-xs">
           <CircleCheck aria-hidden="true" className="mt-0.5 size-5 flex-none text-primary" />

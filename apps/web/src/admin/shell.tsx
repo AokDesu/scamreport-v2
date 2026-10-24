@@ -1,5 +1,5 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ChartColumn, ChevronRight, Inbox, Lock, LogOut, ScrollText, ShieldX, Users, type LucideIcon } from 'lucide-react';
@@ -18,6 +18,11 @@ export type ConsolePage = 'queue' | 'activity' | 'members' | 'dashboard' | 'deta
 /** Which tenant roles may open each page. Mirrors the API checks; the API remains the authority. */
 export const pageRoles: Record<ConsolePage, MemberRole[]> = {
   queue: ['moderator', 'org_admin'], detail: ['moderator', 'org_admin'], activity: ['org_admin'], members: ['org_admin'], dashboard: ['executive'],
+};
+
+const pageOf = (pathname: string): ConsolePage | undefined => {
+  const segment = pathname.split('/')[2];
+  return segment === 'reports' ? 'detail' : segment === 'queue' || segment === 'activity' || segment === 'members' || segment === 'dashboard' ? segment : undefined;
 };
 
 type Console = { me: Me; orgId: string; orgLabel: string; role: MemberRole; can: (page: ConsolePage) => boolean; home: string };
@@ -131,7 +136,15 @@ function Rail() {
 export function ConsoleLayout({ me }: { me: Me }) {
   const { i18n, t } = useTranslation();
   const orgIds = useMemo(() => [...new Set(me.memberships.map(m => m.organization_id))], [me]);
-  const [selectedOrg, setOrgId] = useState(() => initialMembership(me)!.organization_id);
+  const { pathname } = useLocation();
+  const [entry] = useState(() => {
+    const page = pageOf(pathname);
+    const permitted = page && rolePriority.flatMap(role => me.memberships.filter(m => m.role === role)).find(m => pageRoles[page].includes(m.role));
+    return { path: pathname, org: (permitted ?? initialMembership(me)!).organization_id, redirect: Boolean(page && !permitted) };
+  });
+  const [arriving, setArriving] = useState(entry.redirect);
+  useEffect(() => { if (pathname !== entry.path) setArriving(false); }, [pathname, entry.path]);
+  const [selectedOrg, setOrgId] = useState(entry.org);
   const orgId = orgIds.includes(selectedOrg) ? selectedOrg : initialMembership(me)!.organization_id;
   const tenants = useQuery({ queryKey: ['tenants'], queryFn: () => api<Tenant[]>('/tenants'), staleTime: 300_000 });
   const roles = me.memberships.filter(m => m.organization_id === orgId).map(m => m.role);
@@ -157,7 +170,7 @@ export function ConsoleLayout({ me }: { me: Me }) {
               </Select>
             </div>
           )}
-          <Outlet />
+          {arriving ? <Navigate to={value.home} replace /> : <Outlet />}
         </div>
       </div>
     </ConsoleContext.Provider>

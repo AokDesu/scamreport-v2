@@ -79,7 +79,7 @@ test('a saved decision remains saved when next lookup fails and retry only repea
     return normal(path);
   };
   mount(<DetailPage />, `/admin/reports/${report.id}`, identity([membership(A, 'moderator')]));
-  fireEvent.click(await screen.findByRole('button', { name: i18n.t('detail.verify') }));
+  fireEvent.click(await screen.findByRole('radio', { name: i18n.t('detail.verify') }));
   fireEvent.click(screen.getByRole('button', { name: i18n.t('detail.saveAndNext') }));
   const error = await screen.findByRole('alert');
   expect(writes).toBe(1);
@@ -168,4 +168,24 @@ test('the console index follows the selected tenant role', async () => {
   fireEvent.click(await screen.findByRole('option', { name: 'Demo A' }));
   fireEvent.click(screen.getByRole('link', { name: i18n.t('app.name') }));
   expect(await screen.findByRole('heading', { level: 1, name: i18n.t('admin.dashboard') })).toBeTruthy();
+});
+
+test('reloading a page picks the organization whose role permits it, with no denied request', async () => {
+  const me = identity([membership(A, 'executive'), membership(B, 'moderator')]);
+  const requested: string[] = [];
+  network.reply = path => { requested.push(path); return normal(path); };
+  function Context() { const { orgId, role } = useConsole(); return <p>{orgId}|{role}</p>; }
+  mount(<Context />, '/admin/dashboard', me);
+  expect(await screen.findByText(`${A}|executive`)).toBeTruthy();
+  expect(requested.filter(path => path.includes(B))).toEqual([]);
+});
+
+test('a route no membership permits lands on the selected organization home instead of calling the API', async () => {
+  const me = identity([membership(A, 'executive')]);
+  const requested: string[] = [];
+  network.reply = path => { requested.push(path); return normal(path); };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/admin/queue']}><Routes><Route path="/admin/*" element={<AdminConsole me={me} />} /></Routes></MemoryRouter></QueryClientProvider>);
+  expect(await screen.findByRole('heading', { level: 1, name: i18n.t('admin.dashboard') })).toBeTruthy();
+  expect(requested.some(path => path.startsWith('/moderation'))).toBe(false);
 });

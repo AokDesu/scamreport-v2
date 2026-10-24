@@ -333,6 +333,28 @@ describe('report draft (kept through Session Expired)', () => {
     expect(savedDrafts.has(me.id)).toBe(false);
     expect(calls.some(call => call.path.startsWith('/reports'))).toBe(false);
   });
+  test('an unchanged checkpoint that cannot be stored never deletes a resumed sent draft or its files', async () => {
+    savedDrafts.set(me.id, {
+      scam_type: 'shopping', channel: 'sms', amount: '2500', no_loss: false, description: 'ได้ SMS ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงิน', organization_id: bank.id, consent: 'no',
+      contact_email: me.email, files: [new File(['%PDF-1.4'], 'left.pdf', { type: 'application/pdf' })], sent: { reportId: created.id, attached: 0 }, step: 'consent',
+    });
+    reply = path => {
+      if (path === '/tenants') return [unit, bank];
+      throw new ApiFailure(500, 'INTERNAL_ERROR', 'req-500');
+    };
+    vi.spyOn(drafts, 'save').mockRejectedValue(new Error('storage failed'));
+    const remove = vi.spyOn(drafts, 'remove');
+    await renderFlow();
+    fireEvent.click(await screen.findByRole('button', { name: 'ถัดไป: เลือกผู้ที่ติดต่อคุณได้' }));
+    await screen.findByRole('heading', { level: 1, name: 'ให้หน่วยงานติดต่อคุณได้ไหม' });
+    await new Promise(resolve => setTimeout(resolve, 850));
+    fireEvent.click(screen.getByRole('button', { name: 'ลองแนบหลักฐานอีกครั้ง' }));
+    await waitFor(() => expect(evidenceCalls()).toHaveLength(1));
+    await screen.findByText(i18n.t('errors.draftUnavailable'));
+    expect(remove).not.toHaveBeenCalled();
+    expect(savedDrafts.get(me.id)?.files?.map(file => file.name)).toEqual(['left.pdf']);
+    expect(savedDrafts.get(me.id)?.sent).toEqual({ reportId: created.id, attached: 0 });
+  });
   test('after signing in again a restored draft with a created report only uploads the remaining files', async () => {
     savedDrafts.set(me.id, {
       scam_type: 'shopping', channel: 'sms', amount: '2500', no_loss: false, description: 'ได้ SMS ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงิน', organization_id: bank.id, consent: 'no',

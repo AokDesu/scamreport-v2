@@ -337,24 +337,24 @@ export function ReportFlow({ me }: { me: Me }) {
     // uploaded, so an expiry or a failed upload is retried onto the same report, never a duplicate.
     // A checkpoint the device cannot store never blocks filing; when a sent marker cannot be written the
     // older draft is removed so it is never offered again as unsent.
-    const keep = async (progressNow: Draft['sent'], left: File[]) => {
+    const keep = async (progressNow: Draft['sent'], left: File[], markerChanged: boolean) => {
       try {
         await drafts.save(me.id, { ...Object.fromEntries(draftFields.map(key => [key, valid[key]])), files: left, step, sent: progressNow } as Draft);
         setSaveFailed(false);
       } catch {
         setSaveFailed(true);
-        if (progressNow) await drafts.remove(me.id).catch(() => {});
+        if (markerChanged) await drafts.remove(me.id).catch(() => {});
       }
     };
     try {
       let report: Report | undefined;
       let progressNow = sent;
-      await keep(progressNow, files);
+      await keep(progressNow, files, false);
       if (!progressNow) {
         report = await api<Report>('/reports', { method: 'POST', body: JSON.stringify(toReportInput(valid)) });
         progressNow = { reportId: report.id, attached: 0 };
         setSent(progressNow);
-        await keep(progressNow, files);
+        await keep(progressNow, files, true);
       }
       let left = files;
       for (const file of files) {
@@ -371,7 +371,7 @@ export function ReportFlow({ me }: { me: Me }) {
         progressNow = { ...progressNow, attached: progressNow.attached + 1 };
         setFiles(left);
         setSent(progressNow);
-        await keep(progressNow, left);
+        await keep(progressNow, left, true);
       }
       if (left.length) {
         toast.error(t('report.uploadFailed', { count: left.length }));

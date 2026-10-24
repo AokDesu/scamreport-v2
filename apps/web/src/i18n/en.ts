@@ -36,7 +36,7 @@ export const en: Resources = {
   },
   expired: {
     title: 'You were signed out\nto keep your account safe', lead: 'Your session expired, so it was closed automatically. Sign in again to continue.',
-    draftSaved: 'Your unfinished report was saved. You will continue where you left off.',
+    draftUnchecked: 'Your saved draft could not be checked on this device. Sign in again to continue.', draftSaved: 'Your unfinished report was saved. You will continue where you left off.',
     noDraft: 'Your data is safe. Nothing was left unsaved.',
     account: 'Signed in as', submit: 'Sign in again', other: 'Use a different account',
   },
