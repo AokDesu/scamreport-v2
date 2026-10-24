@@ -49,6 +49,8 @@ Seed organizations: A `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`; B `bbbbbbbb-bbbb-4
 
 Supabase rotates refresh tokens normally. If a persisted session cannot be refreshed, the client shows Session Expired even when Auth discards the invalid session during initialization; deliberate Sign out returns to Sign in instead. Temporary Auth/API transport failures remain retryable connection errors, not false session-expiry or permission denials. Stored-session presence is only a UX hint and never grants access.
 
+If a device draft cannot be loaded, the report form still opens with the storage notice, but edits and submission checkpoints cannot overwrite or delete that unread draft. Its sent-report marker and pending evidence remain protected until a later visit loads it successfully or “Discard files and start a new report” succeeds. A failed discard leaves that protection in place.
+
 ## Architecture
 
 ```text
@@ -100,6 +102,8 @@ All endpoints except `/health` and `/openapi*` require `Authorization: Bearer <S
 Every `403` the API gives a staff member from a role, consent or citizen-only check is written to the organization's activity log before the response leaves (`record_denial`), and every staff view of a consented contact is audited by the database function that returns it (`read_report_contact`; staff cannot select `report_contacts` directly); see the [permission matrix](docs/permission-matrix.md).
 
 Lists support `limit` (1–100, default 20) and `offset` (0–100000, default 0), except small tenant/membership catalogs. Success is `{ "data": ... }`. Elysia built-in schemas validate parameters, queries, JSON and files; unknown JSON fields are rejected rather than silently stripped. OpenAPI documents schemas and status codes.
+
+Audit staff attribution reads moderation history in stable pages until exhausted, so PostgREST's row cap cannot turn an older staff decision into a reporter action, even when a single report has more than 100 decisions. Citizen withdrawals remain reporter actions.
 
 The console queue table loads at most 100 rows per tab: the newest 100 for Pending, Flagged and Decided. The tab badges, the rail count and “Call next” come from the server and stay exact beyond 100; when a tab holds more, the table says so. Type, channel and ticket-number filters apply to the loaded rows only. Server-side paging and search are tracked as a follow-up (issue #14).
 

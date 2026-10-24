@@ -265,7 +265,17 @@ export function createApp(config: Config) {
         const tickets = result(await db.from('reports').select('id,ticket_no,created_at').in('id',[...new Set(entries.map(entry=>entry.resource_id))]));
         const ticketOf = new Map(tickets.map(row=>[row.id,row]));
         const updates = entries.filter(entry=>entry.action==='reports.update');
-        const decisions = updates.length ? result(await db.from('moderation_actions').select('report_id,actor_id,request_id,created_at').eq('organization_id',query.organization_id).in('report_id',[...new Set(updates.map(entry=>entry.resource_id))])) : [];
+        const decisions: Array<{report_id:string;actor_id:string;request_id:string;created_at:string}> = [];
+        if (updates.length) {
+          const reportIds = [...new Set(updates.map(entry=>entry.resource_id))];
+          // History is immutable. Read in stable pages until empty, not just PostgREST's capped first page.
+          for (let offset=0;;) {
+            const page = result(await db.from('moderation_actions').select('report_id,actor_id,request_id,created_at').eq('organization_id',query.organization_id).in('report_id',reportIds).order('id').range(offset,offset+99));
+            if (!page.length) break;
+            decisions.push(...page);
+            offset += page.length;
+          }
+        }
         return {data:entries.map(entry=>({...entry,ticket_no:ticketOf.get(entry.resource_id)?.ticket_no ?? null,report_created_at:ticketOf.get(entry.resource_id)?.created_at ?? null,is_moderation:entry.action==='reports.update' && decisions.some(decision=>decision.report_id===entry.resource_id && decision.actor_id===entry.actor_id && decision.request_id===entry.request_id && decision.created_at===entry.created_at)}))};
       },{query:AuditFilter,response:rows(AuditEntry),detail:{summary:'Organization admin reads immutable tenant-scoped audit, including denied attempts; optional result filter'}})
       .get('/audit/counts',async ({db,query,requireRole}) => {

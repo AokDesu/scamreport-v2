@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
@@ -40,7 +41,7 @@ const created = { id: '30000000-0000-4000-8000-000000000001', ticket_no: 4812, c
 function Where() { return <p data-testid="where">{useLocation().pathname}</p>; }
 async function renderFlow() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  const view = render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={['/citizen/report']}>
         <Routes>
@@ -53,6 +54,7 @@ async function renderFlow() {
   );
   // The form appears once the device draft store has answered.
   await screen.findByRole('radiogroup', { name: 'ถูกหลอกแบบไหน' });
+  return view;
 }
 async function fillDetails({ amount = '2,500', story = 'ได้ SMS ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงิน' } = {}) {
   fireEvent.click(screen.getByRole('radio', { name: 'ซื้อของออนไลน์ / พัสดุปลอม' }));
@@ -241,6 +243,70 @@ describe('report draft (kept through Session Expired)', () => {
     vi.spyOn(drafts, 'load').mockRejectedValue(new Error('no indexeddb'));
     await renderFlow();
     expect(screen.getByText(i18n.t('errors.draftUnavailable'))).toBeTruthy();
+  });
+  const unreadDraft = (): Draft => ({
+    scam_type: 'investment', channel: 'social', amount: '45000', no_loss: false, description: story,
+    organization_id: bank.id, consent: 'no', contact_email: me.email,
+    files: [new File(['%PDF-1.4 pending evidence'], 'pending.pdf', { type: 'application/pdf' })],
+    sent: { reportId: created.id, attached: 1 },
+  });
+  test('failed loading then edits and submission never replace or delete the unread sent draft', async () => {
+    const original = unreadDraft();
+    savedDrafts.set(me.id, original);
+    vi.spyOn(drafts, 'load').mockRejectedValue(new Error('lost connection'));
+    await renderFlow();
+    await fillDetails();
+    await delay(600);
+    expect(savedDrafts.get(me.id)).toBe(original);
+    await submitConsent(/^ไม่ยินยอม/);
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe(`/citizen/report/received/${created.id}`));
+    expect(savedDrafts.get(me.id)).toBe(original);
+    expect(savedDrafts.get(me.id)?.sent).toEqual({ reportId: created.id, attached: 1 });
+    expect(savedDrafts.get(me.id)?.files?.[0]).toBe(original.files![0]);
+  });
+  test('a later successful load restores the protected sent marker and pending files', async () => {
+    const original = unreadDraft();
+    savedDrafts.set(me.id, original);
+    const load = vi.spyOn(drafts, 'load').mockRejectedValue(new Error('lost connection'));
+    const view = await renderFlow();
+    fireEvent.change(screen.getByRole('textbox', { name: 'เล่าเหตุการณ์' }), { target: { value: 'new unsaved answers' } });
+    await delay(600);
+    view.unmount();
+    load.mockRestore();
+    await renderFlow();
+    expect((screen.getByRole('textbox', { name: 'เล่าเหตุการณ์' }) as HTMLTextAreaElement).value).toBe(story);
+    expect(screen.getByText('pending.pdf')).toBeTruthy();
+    expect(screen.getByText('เรื่องนี้ส่งไปแล้ว')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'ถัดไป: เลือกผู้ที่ติดต่อคุณได้' }));
+    await screen.findByRole('heading', { level: 1, name: 'ให้หน่วยงานติดต่อคุณได้ไหม' });
+    await delay(850);
+    fireEvent.click(screen.getByRole('button', { name: 'ลองแนบหลักฐานอีกครั้ง' }));
+    await waitFor(() => expect(evidenceCalls()).toHaveLength(1));
+    expect(evidenceCalls()[0]!.path).toBe(`/reports/${created.id}/evidence`);
+    expect(calls.some(call => call.path === '/reports' && call.init?.method === 'POST')).toBe(false);
+  });
+  test('explicit discard after a failed load removes the unread draft and allows new autosaves', async () => {
+    savedDrafts.set(me.id, unreadDraft());
+    vi.spyOn(drafts, 'load').mockRejectedValue(new Error('lost connection'));
+    await renderFlow();
+    fireEvent.click(screen.getByRole('button', { name: 'ทิ้งไฟล์และเริ่มแจ้งเรื่องใหม่' }));
+    await waitFor(() => expect(savedDrafts.has(me.id)).toBe(false));
+    fireEvent.change(screen.getByRole('textbox', { name: 'เล่าเหตุการณ์' }), { target: { value: 'a deliberately new report' } });
+    await waitFor(() => expect(savedDrafts.get(me.id)?.description).toBe('a deliberately new report'));
+    expect(savedDrafts.get(me.id)?.sent).toBeUndefined();
+    expect(savedDrafts.get(me.id)?.files).toEqual([]);
+  });
+  test('a failed explicit discard does not authorize writes over the unread draft', async () => {
+    const original = unreadDraft();
+    savedDrafts.set(me.id, original);
+    vi.spyOn(drafts, 'load').mockRejectedValue(new Error('lost connection'));
+    vi.spyOn(drafts, 'remove').mockRejectedValue(new Error('delete failed'));
+    await renderFlow();
+    fireEvent.click(screen.getByRole('button', { name: 'ทิ้งไฟล์และเริ่มแจ้งเรื่องใหม่' }));
+    await screen.findByRole('alert');
+    fireEvent.change(screen.getByRole('textbox', { name: 'เล่าเหตุการณ์' }), { target: { value: 'edits after failed discard' } });
+    await delay(600);
+    expect(savedDrafts.get(me.id)).toBe(original);
   });
   test('a sent marker that cannot be stored removes the stale unsent draft and uploads continue', async () => {
     await renderFlow();
