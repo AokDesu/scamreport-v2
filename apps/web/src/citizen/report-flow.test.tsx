@@ -228,6 +228,21 @@ describe('report draft (kept through Session Expired)', () => {
     expect(savedDrafts.get(me.id)?.files).toHaveLength(1);
     expect(savedDrafts.get(me.id)?.description).toBe('ได้ SMS ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงิน');
   });
+  test('a restored draft with a sent report can be discarded to start a new report without touching the sent one', async () => {
+    savedDrafts.set(me.id, {
+      scam_type: 'shopping', channel: 'sms', amount: '2500', no_loss: false, description: 'ได้ SMS ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงิน', organization_id: bank.id, consent: 'no',
+      contact_email: me.email, files: [new File(['%PDF-1.4'], 'left.pdf', { type: 'application/pdf' })], sent: { reportId: created.id, attached: 0 },
+    });
+    await renderFlow();
+    expect(screen.getByText('เรื่องนี้ส่งไปแล้ว')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'ทิ้งไฟล์และเริ่มแจ้งเรื่องใหม่' }));
+    await waitFor(() => expect(screen.queryByText('เรื่องนี้ส่งไปแล้ว')).toBeNull());
+    expect((screen.getByRole('textbox', { name: 'เล่าเหตุการณ์' }) as HTMLTextAreaElement).value).toBe('');
+    expect(screen.queryByText('left.pdf')).toBeNull();
+    await new Promise(resolve => setTimeout(resolve, 600));
+    expect(savedDrafts.has(me.id)).toBe(false);
+    expect(calls.some(call => call.path.startsWith('/reports'))).toBe(false);
+  });
   test('after signing in again a restored draft with a created report only uploads the remaining files', async () => {
     savedDrafts.set(me.id, {
       scam_type: 'shopping', channel: 'sms', amount: '2500', no_loss: false, description: 'ได้ SMS ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงิน', organization_id: bank.id, consent: 'no',

@@ -69,7 +69,7 @@ export const en: Resources = {
     consentYes: 'Yes, they may contact me', consentYesHint: 'Helps them follow the money faster.',
     consentNo: 'No, send it without my contact details', consentNoHint: 'The report is still checked, but no one can contact you.',
     consentLegend: 'Consent to be contacted', withdrawHint: 'You can withdraw the report any time from My reports.',
-    submit: 'Send report', retryUpload: 'Try attaching the files again', sentNote: 'Your report was sent. Only the evidence files are still waiting to be attached.', submitting: 'Sending…', uploading: 'Attaching evidence {{done}} of {{total}}…',
+    submit: 'Send report', retryUpload: 'Try attaching the files again', sentTitle: 'This report was already sent', sentNote: 'Changes to its details are not applied. Only the evidence files are still waiting: try attaching them again, or discard them and start a new report. The report you sent stays as it is.', startOver: 'Discard files and start a new report', submitting: 'Sending…', uploading: 'Attaching evidence {{done}} of {{total}}…',
     uploadFailed: 'Report sent, but {{count}} evidence file(s) could not be attached',
   },
   submitted: {
@@ -114,7 +114,9 @@ export const en: Resources = {
     tabs: { pending: 'Pending', flagged: 'Flagged', decided: 'Decided' }, tabsLabel: 'Queue status',
     searchLabel: 'Search report number', searchPlaceholder: 'Report number, e.g. 4812', typeFilter: 'Type', channelFilter: 'Channel', all: 'All',
     col: { ticket: 'Report no.', report: 'Report', channel: 'Channel', amount: 'Loss', waited: 'Waiting', received: 'Received', status: 'Status' },
-    showing: 'Showing {{from}}–{{to}} of {{total}}', prev: 'Previous', next: 'Next', empty: 'Nothing in this tab',
+    showing: 'Showing {{from}}–{{to}} of {{total}}',
+    cappedNewest: 'This tab has {{total}} reports. The table shows the newest {{count}}.',
+    cappedOldest: 'This tab has {{total}} reports. The table shows the oldest {{count}}, in queue order.', prev: 'Previous', next: 'Next', empty: 'Nothing in this tab',
     emptyFiltered: 'No reports match these filters', open: 'Open report {{ticket}}', nextForYou: 'Next for you', pagination: 'Pages',
   },
   detail: {

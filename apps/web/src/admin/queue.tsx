@@ -37,6 +37,9 @@ export function QueuePage() {
   const [channel, setChannel] = useState('all');
   const [page, setPage] = useState(0);
   const next = nextReport.data ?? undefined;
+  const loaded = queue.data?.length ?? 0;
+  const tabTotal = counts.data?.[tab] ?? 0;
+  const capped = queue.isSuccess && tabTotal > loaded;
   const rows = (queue.data ?? [])
     .filter(r => type === 'all' || asScamType(r.scam_type) === type)
     .filter(r => channel === 'all' || asChannel(r.channel) === channel)
@@ -152,6 +155,7 @@ export function QueuePage() {
                 })}
             </TableBody>
           </Table>
+          {capped && <p role="status" className="border-t px-4 py-3 text-sm text-muted-foreground">{t(tab === 'decided' ? 'queue.cappedNewest' : 'queue.cappedOldest', { count: loaded, total: tabTotal })}</p>}
           {rows.length > 0 && (
             <nav aria-label={t('queue.pagination')} className="flex items-center justify-between border-t px-4 py-3 text-sm text-muted-foreground">
               <span>{t('queue.showing', { from: current * pageSize + 1, to: current * pageSize + visible.length, total: rows.length })}</span>

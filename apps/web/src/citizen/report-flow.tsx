@@ -304,6 +304,16 @@ export function ReportFlow({ me }: { me: Me }) {
     window.scrollTo(0, 0);
   }
 
+  async function startOver() {
+    await drafts.remove(me.id);
+    reset({ ...emptyReport, contact_email: me.email ?? '' });
+    setFiles([]);
+    setSent(undefined);
+    setFailure(null);
+    setParams({ step: 'details' });
+    window.scrollTo(0, 0);
+  }
+
   const submit = form.handleSubmit(async valid => {
     setFailure(null);
     setProgress(t('report.submitting'));
@@ -366,6 +376,13 @@ export function ReportFlow({ me }: { me: Me }) {
           if (step === 'details') void next();
           else if (Date.now() - consentSince.current > 800) void submit(event);
         }}>
+          {sent && (
+            <section aria-labelledby="sent-title" className="flex flex-col gap-3 rounded-xl bg-signal-soft p-4 text-signal-foreground">
+              <h2 id="sent-title" className="font-heading text-[1.0625rem] font-semibold">{t('report.sentTitle')}</h2>
+              <p className="text-base leading-[1.6]">{t('report.sentNote')}</p>
+              <Button type="button" variant="outline" disabled={Boolean(progress)} onClick={() => void startOver()}>{t('report.startOver')}</Button>
+            </section>
+          )}
           {/* The saved draft loads first, so it can never overwrite answers typed meanwhile. */}
           {!loaded ? <Skeleton role="status" aria-label={t('app.loading')} className="h-96 rounded-xl bg-card" />
             : step === 'details' ? <DetailsStep form={form} files={files} setFiles={setFiles} />
@@ -377,7 +394,6 @@ export function ReportFlow({ me }: { me: Me }) {
             </p>
           )}
           <BottomActions>
-            {sent && !progress && <p role="status" className="text-center text-base text-muted-foreground">{t('report.sentNote')}</p>}
             {progress && <p role="status" className="text-center text-base text-muted-foreground">{progress}</p>}
             <Button type="submit" size="lg" disabled={Boolean(progress)}>
               {step === 'details' ? <>{t('report.next')}<ArrowRight aria-hidden="true" /></> : <><Send aria-hidden="true" />{t(sent ? 'report.retryUpload' : 'report.submit')}</>}

@@ -99,6 +99,8 @@ Every `403` the API gives a staff member from a role, consent or citizen-only ch
 
 Lists support `limit` (1–100, default 20) and `offset` (0–100000, default 0), except small tenant/membership catalogs. Success is `{ "data": ... }`. Elysia built-in schemas validate parameters, queries, JSON and files; unknown JSON fields are rejected rather than silently stripped. OpenAPI documents schemas and status codes.
 
+The console queue table loads at most 100 rows per tab: the oldest 100 for Pending and Flagged (queue order, so “Call next” is always correct), the newest 100 for Decided. The tab badges, the rail count and “Call next” come from the server and stay exact beyond 100; when a tab holds more, the table says so. Type, channel and ticket-number filters apply to the loaded rows only. Server-side paging and search are tracked as a follow-up (issue #14).
+
 The application bounds total request bodies to **6 MiB before decoding**, counting streamed chunks as well as checking declared lengths. Oversized requests return the same `422 VALIDATION_FAILED` envelope and request ID; the file itself remains limited to 5 MiB. Native Bun limits are not used for this operational bound because native 413 responses skip application error hooks. Rejected body connections close, and the web proxy avoids pooling body requests to prevent Bun 1.3 from reusing a rejected upload connection.
 
 Example report body (`amount` is an exact THB decimal **string**, avoiding floating-point `multipleOf` validation/rounding):

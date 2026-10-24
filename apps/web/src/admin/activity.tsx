@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Ban, ChevronLeft, ChevronRight, CircleCheck, Copy, LockKeyhole, Search, Smartphone, Timer } from 'lucide-react';
-import type { AuditCounts, AuditEntry } from '@scamreport/shared';
+import { Ban, ChevronLeft, ChevronRight, CircleCheck, Copy, LockKeyhole, Search, Smartphone, Timer, UserX } from 'lucide-react';
+import type { AuditCounts, AuditEntry, RosterMember } from '@scamreport/shared';
 import { api } from '@/lib/api';
 import { date, time } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -40,11 +40,17 @@ export function ActivityPage() {
 
   const entries = audit.data ?? [];
   const actionLabel = (action: string) => t(`activity.actions.${action}`, { defaultValue: t('activity.actions.unknown') });
-  // Citizens are never named in an organization log: a non-member actor on a report row is "the reporter".
-  const actorName = (entry: AuditEntry) => entry.actor_id === null ? t('activity.system')
-    : member(entry.actor_id)?.display_name || t(entry.action.startsWith('reports.') ? 'activity.reporter' : 'activity.formerMember');
+  const memberName = (row: RosterMember) => row.display_name || row.email || t('members.unnamed');
+  // Citizens are never named in an organization log. Only a non-member who filed a report, or whose
+  // report is no longer visible because they withdrew it, is "the reporter"; any other non-member is a former member.
+  const isReporter = (entry: AuditEntry) => !member(entry.actor_id) && (entry.action === 'reports.insert' || (entry.action === 'reports.update' && entry.ticket_no === null));
+  const actorName = (entry: AuditEntry) => {
+    if (entry.actor_id === null) return t('activity.system');
+    const row = member(entry.actor_id);
+    return row ? memberName(row) : t(isReporter(entry) ? 'activity.reporter' : 'activity.formerMember');
+  };
   const target = (entry: AuditEntry) => entry.ticket_no !== null ? null
-    : entry.action.startsWith('memberships.') ? member(entry.resource_id)?.display_name ?? t('activity.formerMember')
+    : entry.action.startsWith('memberships.') ? (member(entry.resource_id) ? memberName(member(entry.resource_id)!) : t('activity.formerMember'))
     : entry.action.startsWith('denied.') ? t(entry.resource_id === orgId ? 'activity.organization' : 'activity.otherOrganization')
     : '—';
   const needle = search.trim().toLowerCase();
@@ -102,7 +108,7 @@ export function ActivityPage() {
                         <span className="flex items-center gap-2.5">
                           {entry.actor_id === null ? <span aria-hidden="true" className="grid size-8 place-items-center rounded-full bg-muted"><Timer className="size-4 text-muted-foreground" /></span>
                             : actor ? <Avatar name={name} className="size-8 text-[0.8125rem]" />
-                            : <span aria-hidden="true" className="grid size-8 place-items-center rounded-full bg-muted"><Smartphone className="size-4 text-muted-foreground" /></span>}
+                            : <span aria-hidden="true" className="grid size-8 place-items-center rounded-full bg-muted">{isReporter(entry) ? <Smartphone className="size-4 text-muted-foreground" /> : <UserX className="size-4 text-muted-foreground" />}</span>}
                           <span>
                             <span className="block font-heading text-[0.9375rem] leading-[1.4] font-semibold">{name}</span>
                             <span className="block text-[0.8125rem] text-muted-foreground">{actor ? t(`role.${actor.role}`) : entry.actor_id === null ? t('activity.automatic') : ''}</span>
