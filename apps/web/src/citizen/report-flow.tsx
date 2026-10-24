@@ -253,6 +253,7 @@ export function ReportFlow({ me }: { me: Me }) {
   const form = useForm<ReportValues>({ resolver: zodResolver(reportSchema), defaultValues: { ...emptyReport, contact_email: me.email ?? '' }, mode: 'onTouched' });
   const [files, setFiles] = useState<File[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [writableDraftKey, setWritableDraftKey] = useState<string>();
   const [sent, setSent] = useState<Draft['sent']>();
   const [progress, setProgress] = useState<string | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
@@ -265,6 +266,7 @@ export function ReportFlow({ me }: { me: Me }) {
 
   useEffect(() => {
     let active = true;
+    setWritableDraftKey(undefined);
     void drafts.load(me.id).then(draft => {
       if (!active) return;
       if (draft) {
@@ -273,13 +275,14 @@ export function ReportFlow({ me }: { me: Me }) {
         setSent(draft.sent);
         toast(i18n.t('report.draftRestored'));
       }
+      setWritableDraftKey(me.id);
       setLoaded(true);
     }).catch(() => { if (active) { setSaveFailed(true); setLoaded(true); } });
     return () => { active = false; };
   }, [me.id, reset, getValues]);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || writableDraftKey !== me.id) return;
     // While a submit runs it owns the draft, so a pending autosave can never undo its saves or its final removal.
     if (progress || busy.current) return;
     const started = Boolean(values.scam_type || values.channel || values.amount || values.description || files.length);
@@ -289,7 +292,7 @@ export function ReportFlow({ me }: { me: Me }) {
       void drafts.save(me.id, draft).then(() => setSaveFailed(false), () => setSaveFailed(true));
     }, 400);
     return () => clearTimeout(autosave.current);
-  }, [values, files, step, sent, progress, loaded, me.id]);
+  }, [values, files, step, sent, progress, loaded, writableDraftKey, me.id]);
 
   function focusFirstError() {
     requestAnimationFrame(() => {
@@ -318,6 +321,8 @@ export function ReportFlow({ me }: { me: Me }) {
     setFailure(null);
     try {
       await drafts.remove(me.id);
+      setWritableDraftKey(me.id);
+      setSaveFailed(false);
       reset({ ...emptyReport, contact_email: me.email ?? '' });
       setFiles([]);
       setSent(undefined);
@@ -338,6 +343,8 @@ export function ReportFlow({ me }: { me: Me }) {
     // A checkpoint the device cannot store never blocks filing; when a sent marker cannot be written the
     // older draft is removed so it is never offered again as unsent.
     const keep = async (progressNow: Draft['sent'], left: File[], markerChanged: boolean) => {
+      // A failed load leaves an unread draft: neither checkpoints nor completion may replace it.
+      if (writableDraftKey !== me.id) return;
       try {
         await drafts.save(me.id, { ...Object.fromEntries(draftFields.map(key => [key, valid[key]])), files: left, step, sent: progressNow } as Draft);
         setSaveFailed(false);
@@ -379,7 +386,7 @@ export function ReportFlow({ me }: { me: Me }) {
         busy.current = false;
         return;
       }
-      await drafts.remove(me.id).catch(() => toast.error(t('errors.draftUnavailable')));
+      if (writableDraftKey === me.id) await drafts.remove(me.id).catch(() => toast.error(t('errors.draftUnavailable')));
       navigate(`/citizen/report/received/${progressNow.reportId}`, { replace: true, state: { report, attached: progressNow.attached } });
     } catch (error) {
       if (error instanceof ApiFailure && error.status === 403) navigate('/unauthorized', { state: { need: 'citizen', requestId: error.requestId } });
@@ -420,6 +427,7 @@ export function ReportFlow({ me }: { me: Me }) {
             : step === 'details' ? <DetailsStep form={form} files={files} setFiles={setFiles} />
             : <ConsentStep form={form} />}
           {saveFailed && <p role="status" className="rounded-md bg-muted px-4 py-3 text-base text-foreground">{t('errors.draftUnavailable')}</p>}
+          {loaded && writableDraftKey !== me.id && <Button type="button" variant="outline" disabled={Boolean(progress)} onClick={() => void startOver()}>{t('report.startOver')}</Button>}
           {failure && (
             <p role="alert" className="rounded-md bg-danger-soft px-4 py-3 text-base text-danger-soft-foreground">
               {t(failureMessageKey(failure))}

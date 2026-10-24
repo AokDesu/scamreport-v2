@@ -485,3 +485,37 @@ describe('Queue window boundary',()=>{
     }
   },120000);
 });
+
+describe('Audit attribution boundary',()=>{
+  test('one report with 105 decisions retains staff attribution across audit pages and a citizen withdrawal',async()=>{
+    const report = await create();
+    const prefix = 'audit-boundary-'+report.id+'-';
+    // Normal moderation becomes terminal after at most two decisions. Seed a longer immutable
+    // history in local PostgreSQL to exercise the read boundary, without changing transition rules.
+    const fixture = Bun.spawnSync(['supabase','db','query','--local','--workdir',
+      process.env.SUPABASE_WORKDIR ?? new URL('../../../',import.meta.url).pathname,`
+      with decisions as (
+        insert into public.moderation_actions(report_id,organization_id,actor_id,from_status,to_status,request_id,created_at)
+        select '${report.id}','${A}','10000000-0000-4000-8000-000000000004','pending','flagged',
+          '${prefix}' || n, now() + n * interval '1 millisecond'
+        from generate_series(1,105) n
+        returning *
+      )
+      insert into public.audit_log(organization_id,actor_id,action,resource_id,request_id,created_at)
+      select organization_id,actor_id,'reports.update',report_id,request_id,created_at from decisions;
+    `],{stdout:'pipe',stderr:'pipe'});
+    expect(fixture.exitCode,fixture.stderr.toString()).toBe(0);
+    const requestId = prefix+'105';
+    await data(await request(`/reports/${report.id}/withdraw`,'citizen',{method:'POST',headers:{'X-Request-Id':requestId}}));
+    const entries = [];
+    for (const offset of [0,100]) {
+      entries.push(...await data<Array<{resource_id:string;request_id:string;actor_id:string;is_moderation:boolean;ticket_no:number|null}>>(
+        await request(`/audit?organization_id=${A}&limit=100&offset=${offset}`,'admin-a')));
+    }
+    const decisions = entries.filter(row=>row.resource_id===report.id && row.actor_id==='10000000-0000-4000-8000-000000000004');
+    expect(decisions.map(row=>row.request_id).sort()).toEqual(Array.from({length:105},(_,i)=>prefix+(i+1)).sort());
+    for (const row of decisions) expect(row).toMatchObject({is_moderation:true,ticket_no:null});
+    expect(entries.find(row=>row.resource_id===report.id && row.actor_id===citizenId && row.request_id===requestId))
+      .toMatchObject({is_moderation:false,ticket_no:null});
+  },30000);
+});

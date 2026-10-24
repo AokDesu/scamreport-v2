@@ -2,7 +2,8 @@
  * Report drafts survive a session expiry: fields and evidence files are kept in IndexedDB on this
  * device, keyed by the signed-in user's ID so another account never sees them. Once the report is
  * created the draft keeps its ID and the files still to upload, so a retry attaches them to the same
- * report. A deliberate sign-out or a fully completed submit deletes the draft.
+ * report. Deliberate sign-out deletes the draft; completed submission only deletes a draft the form
+ * successfully loaded (or explicitly discarded first), never an unread key after a failed load.
  */
 export type Draft = {
   scam_type?: string;
