@@ -1,14 +1,14 @@
 # Local acceptance test report
 
-Generated: 2026-10-24T05:07:15.058Z
+Generated: 2026-10-24T13:14:46.542Z
 
 Environment: bun 1.3.13; supabase 2.121.0; local Supabase, fictional seed, caller JWTs. No service-role client.
 
 | Suite | Result | Exit code | Seconds |
 |---|---|---:|---:|
-| Database / pgTAP | PASS | 0 | 3.28 |
-| API / six acceptance categories | PASS | 0 | 8.57 |
-| Web / component tests (vitest + Testing Library) | PASS | 0 | 12.90 |
+| Database / pgTAP | PASS | 0 | 3.69 |
+| API / six acceptance categories | PASS | 0 | 9.49 |
+| Web / component tests (vitest + Testing Library) | PASS | 0 | 23.57 |
 
 API categories: Auth/Session, Permission, Cross-Tenant Denial, API Error, Security, Regression. The expiry test first uses an accepted locally signed JWT, then lets the real Auth server clock expire that same token. Database tests run inside a rolled-back transaction; API tests create fictional reports and withdraw them on cleanup.
 
@@ -17,20 +17,20 @@ API categories: Auth/Session, Permission, Cross-Tenant Denial, API Error, Securi
 Command: `supabase test db`
 
 ```text
-/home/symphony/.treehouse/scamreport-v2-662c27/1/scamreport-v2/supabase/tests/database/access.test.sql .. ok
+/home/symphony/.no-mistakes/worktrees/c33fc7c267d6/01M5PY4C9EZ2NMW2W9NHQDG1KS/.stack-link/supabase/tests/database/access.test.sql .. ok
 All tests successful.
-Files=1, Tests=49,  0 wallclock secs ( 0.03 usr  0.02 sys +  0.02 cusr  0.00 csys =  0.07 CPU)
+Files=1, Tests=80,  0 wallclock secs ( 0.03 usr  0.01 sys +  0.01 cusr  0.01 csys =  0.06 CPU)
 Result: PASS
 
 Connecting to local database...
-psql:/home/symphony/.treehouse/scamreport-v2-662c27/1/scamreport-v2/supabase/tests/database/access.test.sql:2: NOTICE:  extension "pgtap" already exists, skipping
+psql:/home/symphony/.no-mistakes/worktrees/c33fc7c267d6/01M5PY4C9EZ2NMW2W9NHQDG1KS/.stack-link/supabase/tests/database/access.test.sql:2: NOTICE:  extension "pgtap" already exists, skipping
 A new version of Supabase CLI is available: v2.122.0 (currently installed v2.121.0)
 We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
 ```
 
 ## API / six acceptance categories
 
-Command: `bun test apps/api/tests --reporter=junit --reporter-outfile=/tmp/scamreport-tests-C6i28K/api.xml`
+Command: `bun test apps/api/tests --reporter=junit --reporter-outfile=/tmp/scamreport-tests-T6KvhU/api.xml`
 
 ```text
 bun test v1.3.13 (bf2e2cec)
@@ -38,10 +38,10 @@ bun test v1.3.13 (bf2e2cec)
 
 apps/api/tests/acceptance.test.ts:
 
- 24 pass
+ 33 pass
  0 fail
- 291 expect() calls
-Ran 24 tests across 1 file. [8.53s]
+ 875 expect() calls
+Ran 33 tests across 1 file. [9.47s]
 ```
 
 ## Web / component tests (vitest + Testing Library)
@@ -49,13 +49,13 @@ Ran 24 tests across 1 file. [8.53s]
 Command: `bun run --cwd apps/web test`
 
 ```text
-RUN  v5.0.5 /home/symphony/.treehouse/scamreport-v2-662c27/1/scamreport-v2/apps/web
+RUN  v5.0.5 /home/symphony/.no-mistakes/worktrees/c33fc7c267d6/01M5PY4C9EZ2NMW2W9NHQDG1KS/apps/web
 
 
- Test Files  3 passed (3)
-      Tests  30 passed (30)
-   Start at  12:07:01
-   Duration  12.10s (tests 62%, environment 26%, import 6%, setup 5%, transform 1%)
+ Test Files  7 passed (7)
+      Tests  72 passed (72)
+   Start at  20:14:22
+   Duration  23.09s (tests 69%, environment 21%, import 6%, setup 4%, transform 1%)
 
 
 $ vitest run
@@ -65,43 +65,54 @@ $ vitest run
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="bun test" tests="24" assertions="291" failures="0" skipped="0" time="8.533877447">
-  <testsuite name="apps/api/tests/acceptance.test.ts" file="apps/api/tests/acceptance.test.ts" tests="24" assertions="291" failures="0" skipped="0" time="0" hostname="omarchy">
-    <testsuite name="Auth/Session" file="apps/api/tests/acceptance.test.ts" line="67" tests="3" assertions="16" failures="0" skipped="0" time="3.227" hostname="omarchy">
-      <testcase name="missing and forged JWTs fail without exposing upstream details" classname="Auth/Session" time="0.103" file="apps/api/tests/acceptance.test.ts" line="68" assertions="6" />
-      <testcase name="a real locally signed token is accepted, then expires at the Auth boundary" classname="Auth/Session" time="2.991013" file="apps/api/tests/acceptance.test.ts" line="72" assertions="6" />
-      <testcase name="Supabase refresh rotates credentials and keeps verified identity" classname="Auth/Session" time="0.133001" file="apps/api/tests/acceptance.test.ts" line="83" assertions="4" />
+<testsuites name="bun test" tests="33" assertions="875" failures="0" skipped="0" time="9.46738141">
+  <testsuite name="apps/api/tests/acceptance.test.ts" file="apps/api/tests/acceptance.test.ts" tests="33" assertions="875" failures="0" skipped="0" time="0" hostname="omarchy">
+    <testsuite name="Auth/Session" file="apps/api/tests/acceptance.test.ts" line="67" tests="3" assertions="16" failures="0" skipped="0" time="2.592" hostname="omarchy">
+      <testcase name="missing and forged JWTs fail without exposing upstream details" classname="Auth/Session" time="0.069" file="apps/api/tests/acceptance.test.ts" line="68" assertions="6" />
+      <testcase name="a real locally signed token is accepted, then expires at the Auth boundary" classname="Auth/Session" time="2.429012" file="apps/api/tests/acceptance.test.ts" line="72" assertions="6" />
+      <testcase name="Supabase refresh rotates credentials and keeps verified identity" classname="Auth/Session" time="0.094" file="apps/api/tests/acceptance.test.ts" line="83" assertions="4" />
     </testsuite>
-    <testsuite name="Permission" file="apps/api/tests/acceptance.test.ts" line="94" tests="8" assertions="110" failures="0" skipped="0" time="1.256" hostname="omarchy">
-      <testcase name="moderators cannot manage memberships and admins cannot grant themselves roles" classname="Permission" time="0.244001" file="apps/api/tests/acceptance.test.ts" line="95" assertions="9" />
-      <testcase name="admin manages another membership; revoked membership takes effect on an existing JWT" classname="Permission" time="0.166001" file="apps/api/tests/acceptance.test.ts" line="101" assertions="6" />
-      <testcase name="contact sharing requires consent and is scoped to the assigned organization" classname="Permission" time="0.236001" file="apps/api/tests/acceptance.test.ts" line="111" assertions="10" />
-      <testcase name="executive has aggregate access, never queue, contacts, audit or evidence" classname="Permission" time="0.178001" file="apps/api/tests/acceptance.test.ts" line="118" assertions="18" />
-      <testcase name="roster names go to moderators and admins; sign-in emails only to admins; executives denied" classname="Permission" time="0.085" file="apps/api/tests/acceptance.test.ts" line="128" assertions="12" />
-      <testcase name="executive breakdown is counts only, for the executive’s own organization" classname="Permission" time="0.079" file="apps/api/tests/acceptance.test.ts" line="137" assertions="34" />
-      <testcase name="denied staff attempts are logged with their request ID; citizens cannot write any tenant log" classname="Permission" time="0.158001" file="apps/api/tests/acceptance.test.ts" line="144" assertions="15" />
-      <testcase name="each staff view of a consented contact is audited with its request ID" classname="Permission" time="0.11" file="apps/api/tests/acceptance.test.ts" line="159" assertions="6" />
+    <testsuite name="Permission" file="apps/api/tests/acceptance.test.ts" line="94" tests="13" assertions="228" failures="0" skipped="0" time="1.572" hostname="omarchy">
+      <testcase name="moderators cannot manage memberships and admins cannot grant themselves roles" classname="Permission" time="0.122001" file="apps/api/tests/acceptance.test.ts" line="95" assertions="9" />
+      <testcase name="admin manages another membership; revoked membership takes effect on an existing JWT" classname="Permission" time="0.095" file="apps/api/tests/acceptance.test.ts" line="101" assertions="6" />
+      <testcase name="contact sharing requires consent and is scoped to the assigned organization" classname="Permission" time="0.125001" file="apps/api/tests/acceptance.test.ts" line="111" assertions="10" />
+      <testcase name="executive has aggregate access, never queue, contacts, audit or evidence" classname="Permission" time="0.102001" file="apps/api/tests/acceptance.test.ts" line="118" assertions="18" />
+      <testcase name="roster names go to moderators and admins; sign-in emails only to admins; executives denied" classname="Permission" time="0.045" file="apps/api/tests/acceptance.test.ts" line="128" assertions="12" />
+      <testcase name="executive breakdown is counts only, for the executive’s own organization" classname="Permission" time="0.038" file="apps/api/tests/acceptance.test.ts" line="137" assertions="34" />
+      <testcase name="denied staff attempts are logged with their request ID; citizens cannot write any tenant log" classname="Permission" time="0.104001" file="apps/api/tests/acceptance.test.ts" line="144" assertions="15" />
+      <testcase name="each staff view of a consented contact is audited with its request ID" classname="Permission" time="0.07" file="apps/api/tests/acceptance.test.ts" line="159" assertions="6" />
+      <testcase name="staff cannot read contacts through the Data API; only the audited function returns them" classname="Permission" time="0.113001" file="apps/api/tests/acceptance.test.ts" line="168" assertions="14" />
+      <testcase name="staff refusals on consent and on citizen-only routes are logged for the organization" classname="Permission" time="0.081" file="apps/api/tests/acceptance.test.ts" line="184" assertions="10" />
+      <testcase name="queue tables show newest reports while Call next selects oldest pending" classname="Permission" time="0.149001" file="apps/api/tests/acceptance.test.ts" line="194" assertions="26" />
+      <testcase name="former citizen owners follow staff contact rules in Data API, RPC and HTTP" classname="Permission" time="0.348002" file="apps/api/tests/acceptance.test.ts" line="214" assertions="50" />
+      <testcase name="the audit filters denied entries on the server and labels tickets with the report’s own date" classname="Permission" time="0.180001" file="apps/api/tests/acceptance.test.ts" line="252" assertions="18" />
     </testsuite>
-    <testsuite name="Cross-Tenant Denial" file="apps/api/tests/acceptance.test.ts" line="169" tests="3" assertions="37" failures="0" skipped="0" time="0.425" hostname="omarchy">
-      <testcase name="queue, audit, membership and statistics cannot target a different organization" classname="Cross-Tenant Denial" time="0.095" file="apps/api/tests/acceptance.test.ts" line="170" assertions="12" />
-      <testcase name="foreign row IDs are invisible to moderation and citizen withdrawal" classname="Cross-Tenant Denial" time="0.108" file="apps/api/tests/acceptance.test.ts" line="176" assertions="9" />
-      <testcase name="report detail with history opens only inside the assigned organization" classname="Cross-Tenant Denial" time="0.222001" file="apps/api/tests/acceptance.test.ts" line="183" assertions="16" />
+    <testsuite name="Cross-Tenant Denial" file="apps/api/tests/acceptance.test.ts" line="268" tests="3" assertions="37" failures="0" skipped="0" time="0.196" hostname="omarchy">
+      <testcase name="queue, audit, membership and statistics cannot target a different organization" classname="Cross-Tenant Denial" time="0.047" file="apps/api/tests/acceptance.test.ts" line="269" assertions="12" />
+      <testcase name="foreign row IDs are invisible to moderation and citizen withdrawal" classname="Cross-Tenant Denial" time="0.053" file="apps/api/tests/acceptance.test.ts" line="275" assertions="9" />
+      <testcase name="report detail with history opens only inside the assigned organization" classname="Cross-Tenant Denial" time="0.096" file="apps/api/tests/acceptance.test.ts" line="282" assertions="16" />
     </testsuite>
-    <testsuite name="API Error" file="apps/api/tests/acceptance.test.ts" line="195" tests="3" assertions="33" failures="0" skipped="0" time="0.088" hostname="omarchy">
-      <testcase name="malformed JSON, unknown fields, invalid amounts and query limits use one error shape" classname="API Error" time="0.039" file="apps/api/tests/acceptance.test.ts" line="196" assertions="21" />
-      <testcase name="request ID is returned on success, validation and unknown routes" classname="API Error" time="0.021" file="apps/api/tests/acceptance.test.ts" line="206" assertions="9" />
-      <testcase name="unreachable Auth is an internal failure, never an expired or invalid session" classname="API Error" time="0.028" file="apps/api/tests/acceptance.test.ts" line="215" assertions="3" />
+    <testsuite name="API Error" file="apps/api/tests/acceptance.test.ts" line="294" tests="3" assertions="33" failures="0" skipped="0" time="0.04" hostname="omarchy">
+      <testcase name="malformed JSON, unknown fields, invalid amounts and query limits use one error shape" classname="API Error" time="0.011" file="apps/api/tests/acceptance.test.ts" line="295" assertions="21" />
+      <testcase name="request ID is returned on success, validation and unknown routes" classname="API Error" time="0.013" file="apps/api/tests/acceptance.test.ts" line="305" assertions="9" />
+      <testcase name="unreachable Auth is an internal failure, never an expired or invalid session" classname="API Error" time="0.016" file="apps/api/tests/acceptance.test.ts" line="314" assertions="3" />
     </testsuite>
-    <testsuite name="Security" file="apps/api/tests/acceptance.test.ts" line="223" tests="5" assertions="68" failures="0" skipped="0" time="0.674" hostname="omarchy">
-      <testcase name="direct Data API denies cross-tenant writes, self-escalation and executive raw rows" classname="Security" time="0.062" file="apps/api/tests/acceptance.test.ts" line="224" assertions="15" />
-      <testcase name="public projection never includes identity, descriptions or contacts" classname="Security" time="0.045" file="apps/api/tests/acceptance.test.ts" line="240" assertions="17" />
-      <testcase name="private evidence enforces owner upload, tenant read and executive denial" classname="Security" time="0.344002" file="apps/api/tests/acceptance.test.ts" line="248" assertions="20" />
-      <testcase name="oversized known-length and chunked uploads retain validation errors and request IDs" classname="Security" time="0.123001" file="apps/api/tests/acceptance.test.ts" line="267" assertions="9" />
-      <testcase name="ticket numbers are server-assigned and cannot be rewritten through the Data API" classname="Security" time="0.1" file="apps/api/tests/acceptance.test.ts" line="284" assertions="7" />
+    <testsuite name="Security" file="apps/api/tests/acceptance.test.ts" line="322" tests="5" assertions="67" failures="0" skipped="0" time="0.391" hostname="omarchy">
+      <testcase name="direct Data API denies cross-tenant writes, self-escalation and executive raw rows" classname="Security" time="0.053" file="apps/api/tests/acceptance.test.ts" line="323" assertions="15" />
+      <testcase name="public projection never includes identity, descriptions or contacts" classname="Security" time="0.021" file="apps/api/tests/acceptance.test.ts" line="339" assertions="16" />
+      <testcase name="private evidence enforces owner upload, tenant read and executive denial" classname="Security" time="0.176001" file="apps/api/tests/acceptance.test.ts" line="347" assertions="20" />
+      <testcase name="oversized known-length and chunked uploads retain validation errors and request IDs" classname="Security" time="0.069" file="apps/api/tests/acceptance.test.ts" line="366" assertions="9" />
+      <testcase name="ticket numbers are server-assigned and cannot be rewritten through the Data API" classname="Security" time="0.072" file="apps/api/tests/acceptance.test.ts" line="383" assertions="7" />
     </testsuite>
-    <testsuite name="Regression" file="apps/api/tests/acceptance.test.ts" line="296" tests="2" assertions="27" failures="0" skipped="0" time="0.273" hostname="omarchy">
-      <testcase name="create → moderate → public feed → withdraw commits correlated immutable audit" classname="Regression" time="0.247001" file="apps/api/tests/acceptance.test.ts" line="297" assertions="15" />
-      <testcase name="OpenAPI documents the required contracts and bearer authorization" classname="Regression" time="0.026" file="apps/api/tests/acceptance.test.ts" line="313" assertions="12" />
+    <testsuite name="Regression" file="apps/api/tests/acceptance.test.ts" line="395" tests="5" assertions="50" failures="0" skipped="0" time="0.35" hostname="omarchy">
+      <testcase name="an owned ticket resolves by ID outside the newest list window; foreign IDs do not" classname="Regression" time="0.054" file="apps/api/tests/acceptance.test.ts" line="396" assertions="11" />
+      <testcase name="removed staff moderation stays identifiable after the report is withdrawn" classname="Regression" time="0.117001" file="apps/api/tests/acceptance.test.ts" line="403" assertions="8" />
+      <testcase name="a quote and parenthesis request ID from a direct Data API write does not break the audit page" classname="Regression" time="0.054" file="apps/api/tests/acceptance.test.ts" line="417" assertions="4" />
+      <testcase name="create → moderate → public feed → withdraw commits correlated immutable audit" classname="Regression" time="0.105001" file="apps/api/tests/acceptance.test.ts" line="425" assertions="15" />
+      <testcase name="OpenAPI documents the required contracts and bearer authorization" classname="Regression" time="0.02" file="apps/api/tests/acceptance.test.ts" line="441" assertions="12" />
+    </testsuite>
+    <testsuite name="Queue window boundary" file="apps/api/tests/acceptance.test.ts" line="452" tests="1" assertions="444" failures="0" skipped="0" time="1.547" hostname="omarchy">
+      <testcase name="each tab keeps the newest 100 beyond the cap while next remains independent" classname="Queue window boundary" time="1.547008" file="apps/api/tests/acceptance.test.ts" line="453" assertions="444" />
     </testsuite>
   </testsuite>
 </testsuites>
