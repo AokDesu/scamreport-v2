@@ -4,7 +4,7 @@ export const en: Resources = {
   app: { name: 'ScamReport', loading: 'Loading…', retry: 'Try again', back: 'Back', close: 'Close', language: 'Language', skip: 'Skip to main content', notifications: 'Notifications' },
   lang: { th: 'ไทย', en: 'EN', thName: 'ภาษาไทย', enName: 'English' },
   errors: {
-    storage: 'Your draft could not be saved or read on this device. Please try again before continuing.', unavailable: 'Unavailable',
+    storage: 'Your draft could not be saved or read on this device. Please try again before continuing.', draftUnavailable: 'This device cannot keep your draft. You can still send the report, but if this page closes or your session expires the draft may be lost.', draftRemains: 'You are signed out, but a saved draft may remain on this device.', unavailable: 'Unavailable',
     network: 'We could not reach the service. Check your connection and try again.',
     generic: 'That did not work. Please try again.',
     validation: 'Some details are not valid. Check them and try again.',

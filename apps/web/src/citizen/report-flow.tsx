@@ -255,6 +255,7 @@ export function ReportFlow({ me }: { me: Me }) {
   const [loaded, setLoaded] = useState(false);
   const [sent, setSent] = useState<Draft['sent']>();
   const [progress, setProgress] = useState<string | null>(null);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [failure, setFailure] = useState<ApiFailure | Error | null>(null);
   const values = useWatch({ control: form.control });
   const formRef = useRef<HTMLFormElement>(null);
@@ -273,7 +274,7 @@ export function ReportFlow({ me }: { me: Me }) {
         toast(i18n.t('report.draftRestored'));
       }
       setLoaded(true);
-    }).catch(error => { if (active) setFailure(error); });
+    }).catch(() => { if (active) { setSaveFailed(true); setLoaded(true); } });
     return () => { active = false; };
   }, [me.id, reset, getValues]);
 
@@ -285,7 +286,7 @@ export function ReportFlow({ me }: { me: Me }) {
     autosave.current = setTimeout(() => {
       if (!started || busy.current) return;
       const draft: Draft = { ...Object.fromEntries(draftFields.map(key => [key, values[key]])), files, step, sent };
-      void drafts.save(me.id, draft).catch(setFailure);
+      void drafts.save(me.id, draft).then(() => setSaveFailed(false), () => setSaveFailed(true));
     }, 400);
     return () => clearTimeout(autosave.current);
   }, [values, files, step, sent, progress, loaded, me.id]);
@@ -334,7 +335,17 @@ export function ReportFlow({ me }: { me: Me }) {
     setProgress(t('report.submitting'));
     // The draft is the record of progress: it keeps the created report's ID and every file not yet
     // uploaded, so an expiry or a failed upload is retried onto the same report, never a duplicate.
-    const keep = (progressNow: Draft['sent'], left: File[]) => drafts.save(me.id, { ...Object.fromEntries(draftFields.map(key => [key, valid[key]])), files: left, step, sent: progressNow } as Draft);
+    // A checkpoint the device cannot store never blocks filing; when a sent marker cannot be written the
+    // older draft is removed so it is never offered again as unsent.
+    const keep = async (progressNow: Draft['sent'], left: File[]) => {
+      try {
+        await drafts.save(me.id, { ...Object.fromEntries(draftFields.map(key => [key, valid[key]])), files: left, step, sent: progressNow } as Draft);
+        setSaveFailed(false);
+      } catch {
+        setSaveFailed(true);
+        if (progressNow) await drafts.remove(me.id).catch(() => {});
+      }
+    };
     try {
       let report: Report | undefined;
       let progressNow = sent;
@@ -368,7 +379,7 @@ export function ReportFlow({ me }: { me: Me }) {
         busy.current = false;
         return;
       }
-      await drafts.remove(me.id);
+      await drafts.remove(me.id).catch(() => toast.error(t('errors.draftUnavailable')));
       navigate(`/citizen/report/received/${progressNow.reportId}`, { replace: true, state: { report, attached: progressNow.attached } });
     } catch (error) {
       if (error instanceof ApiFailure && error.status === 403) navigate('/unauthorized', { state: { need: 'citizen', requestId: error.requestId } });
@@ -405,13 +416,13 @@ export function ReportFlow({ me }: { me: Me }) {
             </section>
           )}
           {/* The saved draft loads first, so it can never overwrite answers typed meanwhile. */}
-          {!loaded ? !failure && <Skeleton role="status" aria-label={t('app.loading')} className="h-96 rounded-xl bg-card" />
+          {!loaded ? <Skeleton role="status" aria-label={t('app.loading')} className="h-96 rounded-xl bg-card" />
             : step === 'details' ? <DetailsStep form={form} files={files} setFiles={setFiles} />
             : <ConsentStep form={form} />}
+          {saveFailed && <p role="status" className="rounded-md bg-muted px-4 py-3 text-base text-foreground">{t('errors.draftUnavailable')}</p>}
           {failure && (
             <p role="alert" className="rounded-md bg-danger-soft px-4 py-3 text-base text-danger-soft-foreground">
               {t(failureMessageKey(failure))}
-              {!loaded && <Button type="button" variant="link" onClick={() => window.location.reload()}>{t('app.retry')}</Button>}
               {failure instanceof ApiFailure && <span className="mt-1 block font-[Noto_Sans] text-sm tabular-nums">{t('errors.reference', { id: failure.requestId })}</span>}
             </p>
           )}

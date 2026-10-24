@@ -214,36 +214,52 @@ describe('report draft (kept through Session Expired)', () => {
     fireEvent.click(screen.getByRole('radio', { name: /^ยินยอม ให้ติดต่อกลับได้/ }));
     fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '0X-XXX-1002' } });
     fireEvent.change(screen.getByRole('textbox', { name: 'อีเมล' }), { target: { value: 'latest@demo.example.test' } });
+    let atCreate: Draft | undefined;
     reply = path => {
       if (path === '/tenants') return [unit, bank];
-      expect(savedDrafts.get(me.id)).toMatchObject({ organization_id: bank.id, consent: 'yes', contact_email: 'latest@demo.example.test', contact_phone: '0X-XXX-1002' });
-      expect(savedDrafts.get(me.id)?.files?.[0]?.name).toBe('slip.pdf');
+      atCreate = { ...savedDrafts.get(me.id) };
       throw new ApiFailure(401, 'SESSION_EXPIRED', 'create-expired');
     };
     fireEvent.click(screen.getByRole('button', { name: 'ส่งเรื่อง' }));
     await waitFor(() => expect(calls.some(call => call.path === '/reports')).toBe(true));
+    expect(atCreate).toMatchObject({ organization_id: bank.id, consent: 'yes', contact_email: 'latest@demo.example.test', contact_phone: '0X-XXX-1002' });
+    expect(atCreate?.files?.[0]?.name).toBe('slip.pdf');
+    expect(atCreate?.sent).toBeUndefined();
     expect(savedDrafts.get(me.id)?.sent).toBeUndefined();
   });
-  test('a failed initial checkpoint stops creation and a failed sent checkpoint stops uploads', async () => {
+  test('without device storage the form loads empty with a notice and the report is still sent', async () => {
+    vi.spyOn(drafts, 'load').mockRejectedValue(new Error('no indexeddb'));
+    vi.spyOn(drafts, 'save').mockRejectedValue(new Error('no indexeddb'));
+    vi.spyOn(drafts, 'remove').mockRejectedValue(new Error('no indexeddb'));
+    await renderFlow();
+    await fillDetails();
+    await submitConsent(/^ไม่ยินยอม/);
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe(`/citizen/report/received/${created.id}`));
+    expect(calls.filter(call => call.path === '/reports' && call.init?.method === 'POST')).toHaveLength(1);
+  });
+  test('the cannot-keep-drafts notice is shown while storage fails', async () => {
+    vi.spyOn(drafts, 'load').mockRejectedValue(new Error('no indexeddb'));
+    await renderFlow();
+    expect(screen.getByText(i18n.t('errors.draftUnavailable'))).toBeTruthy();
+  });
+  test('a sent marker that cannot be stored removes the stale unsent draft and uploads continue', async () => {
     await renderFlow();
     attachSlip();
     await fillDetails();
-    fireEvent.click(screen.getByRole('radio', { name: 'ธนาคารสาธิต' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'ธนาคารสาธิต' }));
     fireEvent.click(screen.getByRole('radio', { name: /^ไม่ยินยอม/ }));
     await new Promise(resolve => setTimeout(resolve, 850));
-    const save = vi.spyOn(drafts, 'save').mockRejectedValueOnce(new Error('storage failed'));
-    fireEvent.click(screen.getByRole('button', { name: 'ส่งเรื่อง' }));
-    await screen.findByRole('alert');
-    expect(calls.some(call => call.path === '/reports')).toBe(false);
+    const save = vi.spyOn(drafts, 'save');
     reply = path => {
       if (path === '/tenants') return [unit, bank];
-      save.mockRejectedValueOnce(new Error('checkpoint failed'));
+      if (path.endsWith('/evidence')) throw new ApiFailure(500, 'INTERNAL_ERROR', 'req-500');
+      save.mockRejectedValue(new Error('checkpoint failed'));
       return created;
     };
     fireEvent.click(screen.getByRole('button', { name: 'ส่งเรื่อง' }));
-    await screen.findByRole('button', { name: 'ลองแนบหลักฐานอีกครั้ง' });
-    await waitFor(() => expect(screen.getByRole('button', { name: 'ลองแนบหลักฐานอีกครั้ง' }).hasAttribute('disabled')).toBe(false));
-    expect(evidenceCalls()).toHaveLength(0);
+    await waitFor(() => expect(evidenceCalls()).toHaveLength(1));
+    await screen.findByText(i18n.t('errors.draftUnavailable'));
+    expect(savedDrafts.has(me.id)).toBe(false);
   });
   test('discard cancels an autosave while draft deletion is pending', async () => {
     savedDrafts.set(me.id, { description: story, files: [new File(['%PDF-1.4'], 'left.pdf', { type: 'application/pdf' })], sent: { reportId: created.id, attached: 0 } });

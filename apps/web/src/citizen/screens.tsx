@@ -206,7 +206,7 @@ export function Submitted() {
   const { t, i18n } = useTranslation();
   const { id } = useParams();
   const state = useLocation().state as { report?: Report; attached?: number } | null;
-  const received = state?.report?.id === id ? state.report : undefined;
+  const received = state?.report?.id === id ? state?.report : undefined;
   const fetched = useQuery({
     queryKey: ['reports', id], queryFn: () => api<Report>(`/reports/${id}`), enabled: !received,
   });

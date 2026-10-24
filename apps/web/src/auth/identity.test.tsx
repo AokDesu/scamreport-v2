@@ -5,6 +5,9 @@ import type { Me } from '@scamreport/shared';
 import { IdentityProvider, useIdentity } from './identity';
 import { drafts } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
+import { api } from '@/lib/api';
+import { toast } from 'sonner';
+import i18n from '@/i18n';
 
 type Listener = (event: string, session: unknown) => void;
 const auth = vi.hoisted(() => ({ listener: undefined as undefined | ((event: string, session: unknown) => void) }));
@@ -21,6 +24,7 @@ vi.mock('@/lib/supabase', () => ({
   },
 }));
 vi.mock('@/lib/api', () => ({ api: vi.fn(async () => ({ id: 'user-1', email: 'a@example.test', role: 'citizen', memberships: [] } satisfies Me)) }));
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }));
 vi.mock('@/lib/draft', () => ({ drafts: { remove: vi.fn(async () => undefined) } }));
 vi.mock('@/lib/session', () => ({
   expireSession: vi.fn(), sessionEnd: { expected: false }, lastAccount: { set: () => {}, clear: () => {}, get: () => null },
@@ -56,12 +60,23 @@ describe('identity cache', () => {
     act(() => auth.listener!('SIGNED_OUT', null));
     expect(client.getQueryData(['queue', 'tab'])).toBeUndefined();
   });
-  test('failed draft removal stops deliberate sign-out', async () => {
+  test('sign-out completes when draft removal fails, with a notice for a citizen', async () => {
     await mount();
     vi.mocked(drafts.remove).mockRejectedValueOnce(new Error('storage unavailable'));
     vi.mocked(supabase.auth.signOut).mockClear();
+    vi.mocked(toast.error).mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Leave' }));
-    await waitFor(() => expect(drafts.remove).toHaveBeenCalledWith('user-1'));
-    expect(supabase.auth.signOut).not.toHaveBeenCalled();
+    await waitFor(() => expect(supabase.auth.signOut).toHaveBeenCalledWith({ scope: 'local' }));
+    expect(toast.error).toHaveBeenCalledWith(i18n.t('errors.draftRemains'));
+  });
+  test('sign-out completes for staff without any draft notice', async () => {
+    vi.mocked(api).mockResolvedValueOnce({ id: 'user-1', email: 'a@example.test', role: 'staff', memberships: [{ organization_id: 'org', role: 'moderator' }] } as unknown as Me);
+    await mount();
+    vi.mocked(drafts.remove).mockRejectedValueOnce(new Error('storage unavailable'));
+    vi.mocked(supabase.auth.signOut).mockClear();
+    vi.mocked(toast.error).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Leave' }));
+    await waitFor(() => expect(supabase.auth.signOut).toHaveBeenCalledWith({ scope: 'local' }));
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });

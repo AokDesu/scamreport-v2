@@ -414,6 +414,14 @@ describe('Regression',()=>{
     expect(audit.find(row=>row.request_id===requestId)).toMatchObject({is_moderation:true,ticket_no:null});
     expect(audit.find(row=>row.resource_id===report.id && row.action==='reports.update' && row.request_id!==requestId)).toMatchObject({is_moderation:false,ticket_no:null});
   });
+  test('a quote and parenthesis request ID from a direct Data API write does not break the audit page',async()=>{
+    const report = await create();
+    const requestId = 'a",b)(c-'+crypto.randomUUID().slice(0,8);
+    const direct = await fetch(`${env.SUPABASE_URL}/rest/v1/reports?id=eq.${report.id}`,{method:'PATCH',headers:{apikey:env.SUPABASE_ANON_KEY!,Authorization:`Bearer ${tokens.get('citizen')}`,'Content-Type':'application/json','x-request-id':requestId},body:JSON.stringify({status:'withdrawn'})});
+    expect(direct.status).toBe(204);
+    const audit = await data<Array<{request_id:string;action:string;resource_id:string;is_moderation:boolean}>>(await request(`/audit?organization_id=${A}&limit=100`,'admin-a'));
+    expect(audit.find(row=>row.resource_id===report.id && row.action==='reports.update')).toMatchObject({request_id:requestId,is_moderation:false});
+  });
   test('create → moderate → public feed → withdraw commits correlated immutable audit',async()=>{
     const requestId = 'moderation-'+crypto.randomUUID();
     const report = await create();

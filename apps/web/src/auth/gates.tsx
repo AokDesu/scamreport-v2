@@ -100,10 +100,14 @@ export function SessionExpired() {
   if (redirect) return <Navigate to={redirect} replace />;
   return (
     <GateLayout icon={Timer} title={t('expired.title')} lead={t('expired.lead')}>
-      <div role="status" className="flex items-start gap-3 rounded-lg bg-card p-4 text-base leading-[1.6] shadow-xs">
-        <CircleCheck aria-hidden="true" className="mt-0.5 size-5 flex-none text-primary" />
-        <p>{t(draftError ? 'errors.storage' : hasDraft === undefined ? 'app.loading' : hasDraft ? 'expired.draftSaved' : 'expired.noDraft')}</p>
-      </div>
+      {draftError ? (
+        <p role="alert" className="rounded-md bg-danger-soft px-4 py-3 text-base text-danger-soft-foreground">{t('errors.draftUnavailable')}</p>
+      ) : (
+        <div role="status" className="flex items-start gap-3 rounded-lg bg-card p-4 text-base leading-[1.6] shadow-xs">
+          <CircleCheck aria-hidden="true" className="mt-0.5 size-5 flex-none text-primary" />
+          <p>{t(hasDraft === undefined ? 'app.loading' : hasDraft ? 'expired.draftSaved' : 'expired.noDraft')}</p>
+        </div>
+      )}
       <form className="flex flex-col gap-4.5" onSubmit={event => void submit(event, email)} aria-busy={busy}>
         {email && (
           <div className="flex flex-col gap-1.5">

@@ -27,12 +27,23 @@ export class DraftStorageError extends Error {
 }
 
 let connection: Promise<IDBDatabase> | undefined;
+let current: IDBDatabase | undefined;
+/** Drops a connection that closed, was invalidated or threw, so the next call opens a fresh one. */
+function forget(db: IDBDatabase) {
+  if (current === db) { connection = undefined; current = undefined; }
+  db.close();
+}
 function open(): Promise<IDBDatabase> {
   connection ??= new Promise<IDBDatabase>((resolve, reject) => {
     if (typeof indexedDB === 'undefined') return reject(new DraftStorageError());
     const request = indexedDB.open(database, 1);
     request.onupgradeneeded = () => request.result.createObjectStore(store);
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      current = db;
+      db.onclose = db.onversionchange = () => forget(db);
+      resolve(db);
+    };
     request.onerror = () => reject(new DraftStorageError());
   }).catch(error => { connection = undefined; throw error; });
   return connection;
@@ -41,7 +52,9 @@ async function run<T>(mode: IDBTransactionMode, action: (objects: IDBObjectStore
   try {
     const db = await open();
     return await new Promise<T>((resolve, reject) => {
-      const transaction = db.transaction(store, mode);
+      let transaction: IDBTransaction;
+      try { transaction = db.transaction(store, mode); }
+      catch (error) { forget(db); throw error; }
       const request = action(transaction.objectStore(store));
       transaction.oncomplete = () => resolve(request.result);
       transaction.onabort = transaction.onerror = () => reject(new DraftStorageError());

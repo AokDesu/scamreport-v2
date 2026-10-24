@@ -68,12 +68,14 @@ export function IdentityProvider({ children }: { children: ReactNode }) {
   async function signOut() {
     sessionEnd.expected = true;
     try {
-      if (userId) await drafts.remove(userId);
+      if (userId) {
+        try { await drafts.remove(userId); }
+        catch { if (!identity.data?.memberships.length) toast.error(i18n.t('errors.draftRemains')); }
+      }
       lastAccount.clear();
       await supabase.auth.signOut({ scope: 'local' });
       return true;
     } catch {
-      toast.error(i18n.t('errors.storage'));
       return false;
     } finally { sessionEnd.expected = false; }
   }
