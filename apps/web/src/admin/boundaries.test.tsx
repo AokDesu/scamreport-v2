@@ -140,6 +140,22 @@ test('changing Activity organization hides the previous organization rows', asyn
   finish([]);
 });
 
+test('changing organization returns Activity to its first page', async () => {
+  const requested: string[] = [];
+  network.reply = path => {
+    if (path.startsWith('/audit?')) { requested.push(path); return path.includes(`offset=20`) ? [] : Array.from({ length: 20 }, (_, index) => ({ ...audit, id: `audit-${index}`, request_id: `request-${path.includes(B) ? 'B' : 'A'}-${index}` })); }
+    return normal(path);
+  };
+  mount(<ActivityPage />, '/admin/activity', identity([membership(A, 'org_admin'), membership(B, 'org_admin')]));
+  expect(await screen.findByText('request-A-0')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(i18n.t('activity.next')) }));
+  await waitFor(() => expect(requested.some(path => path.includes(A) && path.includes('offset=20'))).toBe(true));
+  fireEvent.keyDown(screen.getByRole('combobox', { name: i18n.t('admin.switchOrg') }), { key: 'ArrowDown' });
+  fireEvent.click(await screen.findByRole('option', { name: 'Demo B' }));
+  expect(await screen.findByText('request-B-0')).toBeTruthy();
+  expect(requested.some(path => path.includes(B) && path.includes('offset=20'))).toBe(false);
+});
+
 test('detail context and decision rights follow its report rather than selected organization', async () => {
   const requested: string[] = [];
   network.reply = path => { requested.push(path); return normal(path); };

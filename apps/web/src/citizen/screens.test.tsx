@@ -37,6 +37,14 @@ test('a missing received ticket finishes with an error and navigation', async ()
   expect(screen.queryByRole('status', { name: 'Loading…' })).toBeNull();
 });
 
+test('a malformed received ticket ID finishes as not found without a retry that cannot succeed', async () => {
+  network.reply = path => { if (path.startsWith('/reports/')) throw new ApiFailure(422, 'VALIDATION_FAILED', 'invalid'); return []; };
+  mount('/received/abc', <Submitted />);
+  expect(await screen.findByRole('alert')).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'See my reports' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+});
+
 test('changing feed criteria hides earlier warnings until matching results arrive', async () => {
   let finish!: (value: unknown[]) => void;
   network.reply = path => path === '/feed?limit=50' ? [{ ...report, status: 'verified' }] : new Promise(resolve => { finish = resolve; });

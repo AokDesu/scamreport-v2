@@ -211,7 +211,7 @@ export function Submitted() {
     queryKey: ['reports', id], queryFn: () => api<Report>(`/reports/${id}`), enabled: !received,
   });
   const report = received ?? fetched.data;
-  const missing = fetched.error instanceof ApiFailure && fetched.error.status === 404;
+  const missing = fetched.error instanceof ApiFailure && (fetched.error.status === 404 || fetched.error.status === 422);
   const tenantName = useTenantNames();
   return (
     <>

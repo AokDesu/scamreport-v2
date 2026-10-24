@@ -20,6 +20,10 @@ const pageSize = 20;
 type ResultFilter = 'all' | 'success' | 'denied';
 
 export function ActivityPage() {
+  return <ActivityBody key={useConsole().orgId} />;
+}
+
+function ActivityBody() {
   const { t, i18n } = useTranslation();
   const { orgId } = useConsole();
   const [page, setPage] = useState(0);
