@@ -64,7 +64,7 @@ try {
   }
 }
 const versions = ['bun','supabase'].map(binary=>binary+' '+Bun.spawnSync([binary,'--version'],{stderr:'pipe'}).stdout.toString().trim()).join('; ');
-const report = '# Local acceptance test report\n\nGenerated: '+new Date().toISOString()+'\n\nEnvironment: '+versions+'; isolated local Supabase, fictional fresh seed, production web/API proxy, Chromium, caller JWTs. No service-role client.\n\n'+
+const report = '# Local acceptance test report\n\nGenerated: '+new Date().toISOString()+'\n\nEnvironment: '+versions+'; isolated local Supabase, fictional fresh seed, production web/API proxy, Chromium, caller JWTs. No service-role client.\n\nOwned project: `'+project+'`; Supabase: `'+(env.SUPABASE_URL ?? 'not started')+'`; web: `http://127.0.0.1:'+env.E2E_WEB_PORT+'`; API: `http://127.0.0.1:'+env.E2E_API_PORT+'`.\n\n'+
   '| Suite | Result | Exit code | Seconds |\n|---|---|---:|---:|\n'+results.map(row=>'| '+row.name+' | '+(row.code===0?'PASS':'FAIL')+' | '+row.code+' | '+row.seconds+' |').join('\n')+'\n\n'+
   'Acceptance categories: Auth/Session, Permission, Cross-Tenant Denial, API Error, Security, Regression. Database cases roll back. API tests use real Auth/Data API/Storage. Before Chromium runs, only this disposable database is reset to the fictional seed. Browser expiry uses a token accepted by Auth before the same token expires on the real server clock.\n\n'+
   results.map(row=>'## '+row.name+'\n\nCommand: `'+row.command+'`\n\n```text\n'+row.output+'\n```\n').join('\n');

@@ -16,7 +16,7 @@ export default class AcceptanceReporter implements Reporter {
       const passed = rows.filter(row=>row.status==='PASS').length;
       return `| ${category} | ${passed} | ${rows.length-passed} | ${rows.length>0 && passed===rows.length ? 'PASS' : 'FAIL / missing coverage'} |`;
     }).join('\n');
-    const text = '## End-to-end acceptance categories (Chromium)\n\nRun: **'+result.status+'**. Each case uses real seeded browser sessions and the production web/API proxy. Phase 1 covers boundaries and existing error shells; full product UI flows await the screens merge.\n\n'+table+'\n\n| Category | Case | Result |\n|---|---|---|\n'+cases.map(row=>`| ${row.category} | ${row.name.replaceAll('|','\\|')} | ${row.status} |`).join('\n')+'\n';
+    const text = '## End-to-end acceptance categories (Chromium)\n\nRun: **'+result.status+'**. Real seeded browser sessions exercise the production web/API proxy: access boundaries, mid-report expiry and password recovery with draft/photo bytes preserved, consented filing and moderator verification into the feed, foreign-report UI denial, and aggregate-only executive dashboards with network privacy assertions.\n\n'+table+'\n\n| Category | Case | Result |\n|---|---|---|\n'+cases.map(row=>`| ${row.category} | ${row.name.replaceAll('|','\\|')} | ${row.status} |`).join('\n')+'\n';
     if (process.env.E2E_REPORT_PATH) writeFileSync(process.env.E2E_REPORT_PATH,text);
   }
 }

@@ -53,6 +53,7 @@ export const test = base.extend<{signIn: (account: Account) => Promise<Actor>}, 
       page.on('request',request => {
         const url = new URL(request.url());
         if (url.origin === new URL(baseURL!).origin && url.pathname.startsWith('/api/')) apiRequests.push(url.pathname+url.search);
+        if (url.pathname.startsWith('/rest/v1/')) apiRequests.push(url.href);
       });
       await page.goto(accounts[account].path);
       await expect(page.getByRole('button',{name:'ออกจากระบบ',exact:true})).toBeVisible();
