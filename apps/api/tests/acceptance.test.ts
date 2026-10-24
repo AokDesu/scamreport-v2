@@ -287,7 +287,7 @@ describe('Security',()=>{
     for (const account of ['citizen','moderator-a'] as const) {
       const rewrite = await clients.get(account)!.from('reports').update({ticket_no:1}).eq('id',first.id);
       // Identity columns reject writes before privileges (428C9); either way nothing changes.
-      expect(['42501','428C9']).toContain(rewrite.error?.code);
+      expect(['42501','428C9']).toContain(rewrite.error?.code ?? 'no error');
     }
     const own = await data<Report[]>(await request('/reports?limit=100'));
     expect(own.find(row=>row.id===first.id)?.ticket_no).toBe(first.ticket_no);
