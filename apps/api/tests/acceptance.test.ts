@@ -114,6 +114,9 @@ describe('Permission',()=>{
     const contact = await data<{email:string}>(await request(`/reports/${yes.id}/contacts`,'moderator-a'));
     expect(contact.email).toBe('contact@demo.example.test');
     await error(await request(`/reports/${yes.id}/contacts`,'moderator-b'),404,'NOT_FOUND');
+    // Seeded demo phones are digits-only placeholders; the UI privacy checks list these exact values.
+    const seeded = await data<{phone:string|null}>(await request('/reports/20000000-0000-4000-8000-000000000001/contacts','citizen'));
+    expect(seeded.phone).toBe('080-000-1001');
   });
   test('executive has aggregate access, never queue, contacts, audit or evidence',async()=>{
     const statistics = await data<Array<{status:string;report_count:number;total_amount:number}>>(await request(`/statistics?organization_id=${A}`,'executive-a'));

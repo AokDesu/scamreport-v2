@@ -104,13 +104,13 @@ describe('report form', () => {
   test('with consent, sends the exact API body including the contact snapshot', async () => {
     await renderFlow();
     await fillDetails();
-    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '0X-XXX-1001' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '080-000-1001' } });
     await submitConsent(/^ยินยอม ให้ติดต่อกลับได้/);
     await waitFor(() => expect(screen.getByTestId('where').textContent).toBe(`/citizen/report/received/${created.id}`));
     expect(posted()).toEqual({
       organization_id: bank.id, scam_type: 'shopping', channel: 'sms', amount: '2500',
       description: 'ได้ SMS ให้กดลิงก์จ่ายค่าส่ง แล้วถูกตัดเงิน', consent_contact: true,
-      contact_email: 'citizen@demo.example.test', contact_phone: '0X-XXX-1001',
+      contact_email: 'citizen@demo.example.test', contact_phone: '080-000-1001',
     });
   });
 
@@ -214,7 +214,7 @@ describe('report draft (kept through Session Expired)', () => {
     await new Promise(resolve => setTimeout(resolve, 850));
     fireEvent.click(screen.getByRole('radio', { name: 'ธนาคารสาธิต' }));
     fireEvent.click(screen.getByRole('radio', { name: /^ยินยอม ให้ติดต่อกลับได้/ }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '0X-XXX-1002' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'เบอร์โทร' }), { target: { value: '080-000-1002' } });
     fireEvent.change(screen.getByRole('textbox', { name: 'อีเมล' }), { target: { value: 'latest@demo.example.test' } });
     let atCreate: Draft | undefined;
     reply = path => {
@@ -224,7 +224,7 @@ describe('report draft (kept through Session Expired)', () => {
     };
     fireEvent.click(screen.getByRole('button', { name: 'ส่งเรื่อง' }));
     await waitFor(() => expect(calls.some(call => call.path === '/reports')).toBe(true));
-    expect(atCreate).toMatchObject({ organization_id: bank.id, consent: 'yes', contact_email: 'latest@demo.example.test', contact_phone: '0X-XXX-1002' });
+    expect(atCreate).toMatchObject({ organization_id: bank.id, consent: 'yes', contact_email: 'latest@demo.example.test', contact_phone: '080-000-1002' });
     expect(atCreate?.files?.[0]?.name).toBe('slip.pdf');
     expect(atCreate?.sent).toBeUndefined();
     expect(savedDrafts.get(me.id)?.sent).toBeUndefined();

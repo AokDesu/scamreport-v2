@@ -15,14 +15,14 @@ from (values (1,'citizen'),(2,'citizen-two'),(3,'citizen-three'),(4,'moderator-a
 insert into auth.identities(id,user_id,provider_id,identity_data,provider,created_at,updated_at)
 select gen_random_uuid(),id,id::text,jsonb_build_object('sub',id::text,'email',email,'email_verified',true),'email',now(),now()
 from auth.users where email like '%@demo.example.test';
--- Fictional display names and deliberately undiallable masked phone numbers (a letter X stands in for digits).
+-- Fictional display names and digits-only demo phone numbers (080-000-10NN): placeholders for this local demo, not real subscribers.
 update public.profiles set display_name = names.display_name, contact_phone = names.phone
 from auth.users u join (values
- ('citizen','สมศรี ใจดี (สาธิต)','0X-XXX-1001'),('citizen-two','วิชัย มั่นคง (สาธิต)','0X-XXX-1002'),
- ('citizen-three','มาลี รักษ์ไทย (สาธิต)','0X-XXX-1003'),('moderator-a','ณัฐวุฒิ ศรีสุข (สาธิต)','0X-XXX-1004'),
- ('admin-a','พิมพ์ชนก วงศ์ทอง (สาธิต)','0X-XXX-1005'),('executive-a','ประเสริฐ อินทร์แก้ว (สาธิต)','0X-XXX-1006'),
- ('moderator-b','อรุณา แสงจันทร์ (สาธิต)','0X-XXX-1007'),('admin-b','ธีรพงษ์ บุญมา (สาธิต)','0X-XXX-1008'),
- ('executive-b','กมลวรรณ ทองดี (สาธิต)','0X-XXX-1009')) as names(label,display_name,phone)
+ ('citizen','สมศรี ใจดี (สาธิต)','080-000-1001'),('citizen-two','วิชัย มั่นคง (สาธิต)','080-000-1002'),
+ ('citizen-three','มาลี รักษ์ไทย (สาธิต)','080-000-1003'),('moderator-a','ณัฐวุฒิ ศรีสุข (สาธิต)','080-000-1004'),
+ ('admin-a','พิมพ์ชนก วงศ์ทอง (สาธิต)','080-000-1005'),('executive-a','ประเสริฐ อินทร์แก้ว (สาธิต)','080-000-1006'),
+ ('moderator-b','อรุณา แสงจันทร์ (สาธิต)','080-000-1007'),('admin-b','ธีรพงษ์ บุญมา (สาธิต)','080-000-1008'),
+ ('executive-b','กมลวรรณ ทองดี (สาธิต)','080-000-1009')) as names(label,display_name,phone)
  on u.email = names.label || '@demo.example.test'
 where profiles.user_id = u.id;
 
