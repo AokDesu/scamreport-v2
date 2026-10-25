@@ -52,7 +52,7 @@ test.describe('Auth/Session', () => {
     },{times:1});
     await sleep(Math.max(0,expires*1000-Date.now()+1100));
     // Submit before the 400 ms autosave can run: the pre-submit checkpoint must keep this last edit too.
-    await page.getByRole('textbox',{name:'Phone',exact:true}).fill('0X-EXPIRY-234');
+    await page.getByRole('textbox',{name:'Phone',exact:true}).fill('080-000-2340');
     const expiredResponse = page.waitForResponse(response=>new URL(response.url()).pathname==='/api/reports' && response.request().method()==='POST');
     await page.getByRole('button',{name:'Send report',exact:true}).click();
     const expired = await expiredResponse;
@@ -72,7 +72,7 @@ test.describe('Auth/Session', () => {
     expect((await authenticated).status()).toBe(200);
     await expect(page).toHaveURL(/\/citizen\/report\?step=consent$/);
     await expect(page.getByRole('textbox',{name:'Email',exact:true})).toHaveValue('expiry@demo.example.test');
-    await expect(page.getByRole('textbox',{name:'Phone',exact:true})).toHaveValue('0X-EXPIRY-234');
+    await expect(page.getByRole('textbox',{name:'Phone',exact:true})).toHaveValue('080-000-2340');
     await expect(page.getByRole('radio',{name:'Demo River Bank',exact:true})).toBeChecked();
     await expect(page.getByRole('radio',{name:/^Yes, they may contact me/})).toBeChecked();
     await page.getByRole('link',{name:'Back',exact:true}).click();
@@ -208,7 +208,7 @@ test.describe('Security', () => {
       await expect(page.getByRole('region',{name:'By scam type',exact:true})).toBeVisible();
       expect(new Set(executive.apiRequests)).toEqual(new Set(['/api/me','/api/tenants',`/api/statistics?organization_id=${tenant}`,`/api/statistics/breakdown?organization_id=${tenant}`]));
       const text = await page.getByRole('main').innerText();
-      for (const personal of ['citizen@demo.example.test','citizen-two@demo.example.test','citizen-three@demo.example.test','สมศรี ใจดี','วิชัย มั่นคง','มาลี รักษ์ไทย','0X-XXX-1001','0X-XXX-1002','0X-XXX-1003','consented-ui@demo.example.test','expiry@demo.example.test','0X-EXPIRY-234','รายงานสาธิต: โฆษณาการลงทุนที่ไม่มีอยู่จริง']) expect(text).not.toContain(personal);
+      for (const personal of ['citizen@demo.example.test','citizen-two@demo.example.test','citizen-three@demo.example.test','สมศรี ใจดี','วิชัย มั่นคง','มาลี รักษ์ไทย','080-000-1001','080-000-1002','080-000-1003','consented-ui@demo.example.test','expiry@demo.example.test','080-000-2340','รายงานสาธิต: โฆษณาการลงทุนที่ไม่มีอยู่จริง']) expect(text).not.toContain(personal);
       await expect(page.getByRole('button',{name:'Show contact details',exact:true})).toHaveCount(0);
       await expect(page.getByRole('textbox',{name:'Email',exact:true})).toHaveCount(0);
       await page.screenshot({path:testInfo.outputPath('executive-aggregate-only.png'),fullPage:true});
